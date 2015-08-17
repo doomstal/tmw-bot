@@ -5,68 +5,10 @@ import java.net.Socket;
 import java.util.HashMap;
 import java.util.Map;
 
-class Character {
-    public int x;
-    public int y;
-    public int dir;
-
-    public int id;
-    public int exp;
-    public int money;
-    public int job_exp;
-    public int job_level;
-    public int shoes;
-    public int gloves;
-    public int cape;
-    public int misc1;
-    public int hp;
-    public int max_hp;
-    public int mp;
-    public int max_mp;
-    public int species;
-    public int hair;
-    public int weapon;
-    public int level;
-    public int legs;
-    public int shield;
-    public int head;
-    public int torso;
-    public int hair_color;
-    public int misc2;
-    public String name;
-    public int st_str;
-    public int st_agi;
-    public int st_vit;
-    public int st_int;
-    public int st_dex;
-    public int st_luk;
-    public int char_slot;
-
-    public int char_points;
-    public int skill_points;
-    public int total_weight;
-    public int max_weight;
-    public int atk_base;
-    public int atk_mod;
-    public int matk_base;
-    public int matk_mod;
-    public int def_base;
-    public int def_mod;
-    public int mdef_base;
-    public int mdef_mod;
-    public int hit_base;
-    public int flee_base;
-    public int flee_mod;
-    public int crit_base;
-    public int attack_speed;
-    public int job_base;
-
-    public Character() {}
-
-    public void print() {
-        System.out.println("[" + char_slot + "] " + name + " (" + level + " lvl)");
-    }
-}
+import org.luaj.vm2.Globals;
+import org.luaj.vm2.LuaValue;
+import org.luaj.vm2.LuaTable;
+import org.luaj.vm2.lib.jse.JsePlatform;
 
 public class bot {
     static Map<Integer, Integer> packetLength = new HashMap<Integer, Integer>();
@@ -453,10 +395,14 @@ public class bot {
     int sid2;
     int gender;
 
-    Character character;
+    LuaTable character = new LuaTable();
+    LuaTable beings = new LuaTable();
 
     String mapServerIp;
     int mapServerPort;
+
+    boolean mapLoaded = true;
+    boolean quit = false;
 
     public void writeByte(int b) throws IOException {
         out.write(b);
@@ -502,12 +448,6 @@ public class bot {
         return b1 + (b2<<8) + (b3<<16) + (b4<<24);
     }
 
-    public void readHex() throws IOException {
-        for(;;) {
-            printHexByte(readByte());
-        }
-    }
-
     public String readString(int len) throws IOException {
         StringBuilder sb = new StringBuilder();
         boolean append = true;
@@ -519,56 +459,31 @@ public class bot {
         return sb.toString();
     }
 
-    public Character readCharacter() throws IOException {
-        Character c = new Character();
-        c.id = readInt();
-        c.exp = readInt();
-        c.money = readInt();
-        c.job_exp = readInt();
-        c.job_level = readInt();
-        c.shoes = readShort();
-        c.gloves = readShort();
-        c.cape = readShort();
-        c.misc1 = readShort();
-        in.skip(14);
-        c.hp = readShort();
-        c.max_hp = readShort();
-        c.mp = readShort();
-        c.max_mp = readShort();
-        in.skip(2);
-        c.species = readShort();
-        c.hair = readShort();
-        c.weapon = readShort();
-        c.level = readShort();
-        in.skip(2);
-        c.legs = readShort();
-        c.shield = readShort();
-        c.head = readShort();
-        c.torso = readShort();
-        c.hair_color = readShort();
-        c.misc2 = readShort();
-        c.name = readString(24);
-        c.st_str = readByte();
-        c.st_agi = readByte();
-        c.st_vit = readByte();
-        c.st_int = readByte();
-        c.st_dex = readByte();
-        c.st_luk = readByte();
-        c.char_slot = readByte();
-        in.skip(1);
-
-        return c;
+    public void readHex() throws IOException {
+        for(;;) {
+            printHexByte(readByte());
+        }
     }
 
-    public Character readPosition(Character c) throws IOException {
+    public void readCoordinatePair(LuaValue being) throws IOException {
         int b0 = readByte();
         int b1 = readByte();
         int b2 = readByte();
-        c.x = ((b1 & 0xC0) + ((b0 & 0xFF) << 8)) >> 6;
-        c.y = ((b2 & 0xF0) + ((b1 & 0x3F) << 8)) >> 4;
-        c.dir = b2 & 0x0F;
+        int b3 = readByte();
+        int b4 = readByte();
+        being.set("dstx", (b3 | ((b2 & 0x0F) << 8)) >> 2);
+        being.set("dsty", b4 | (b3 & 0x03) << 8);
+        being.set("srcx", (b1 | (b0 << 8)) >> 6);
+        being.set("srcy", (b2 | ((b1 & 0x3F) << 8)) >> 4);
+    }
 
-        return c;
+    public void readCoordinates(LuaValue being) throws IOException {
+        int b0 = readByte();
+        int b1 = readByte();
+        int b2 = readByte();
+        being.set("x", ((b1 & 0xC0) | ((b0 & 0xFF) << 8)) >> 6);
+        being.set("y", ((b2 & 0xF0) | ((b1 & 0x3F) << 8)) >> 4);
+        being.set("dir", b2 & 0x0F);
     }
 
     public void expectPacket(int p) throws IOException {
@@ -576,10 +491,38 @@ public class bot {
         if(packet != p) {
             System.out.append("unexpected packet ");
             printHexShort(packet);
+            readHex();
         }
     }
 
+    public LuaValue createBeing(int id, int job) {
+        LuaTable being = new LuaTable();
+        String type = "";
+        being.set("job", job);
+        if(job <=25 || (job >= 4001 && job <= 4049)) {
+            type = "player";
+        } else if(job >= 46 && job <= 1000) {
+            type = "npc";
+        } else if(job > 1000 && job <= 2000) {
+            type = "monster";
+        } else if(job == 45) {
+            type = "portal";
+        }
+        being.set("type", type);
+
+        beings.set(id, being);
+
+        if(type.equals("player") || type.equals("npc")) {
+            writeShort(0x0094); // being name request
+            writeInt(id);
+        }
+
+        return being;
+    }
+
     public bot() throws Exception {
+        System.out.println("connecting to login server");
+
         sock = new Socket("server.themanaworld.org", 6901); // login server
         out = sock.getOutputStream();
         in = sock.getInputStream();
@@ -599,7 +542,7 @@ public class bot {
 
         writeShort(0x0064); // login request
         writeInt(0);
-        writeString(24, "tmwbot");
+        writeString(24, "chibot");
         writeString(24, "m1ghtyb0t");
         writeByte(2);
 
@@ -652,6 +595,8 @@ public class bot {
 
         sock.close(); // disconnect from login server
 
+        System.out.println("connecting to char server");
+
         sock = new Socket(charServerIp, charServerPort); // char server
         out = sock.getOutputStream();
         in = sock.getInputStream();
@@ -661,7 +606,7 @@ public class bot {
         writeInt(sid1);
         writeInt(sid2);
         writeShort(1);
-        writeByte(1);
+        writeByte(gender);
 
         in.skip(4);
 
@@ -670,8 +615,47 @@ public class bot {
             int len = readShort();
             in.skip(20);
             int charCount = (len - 24) / 106;
-            character = readCharacter();
-            character.print();
+
+            character.set("id", readInt());
+            character.set("exp", readInt());
+            character.set("money", readInt());
+            character.set("job_exp", readInt());
+            int temp = readInt();
+            character.set("job_base", temp);
+            character.set("job_mod", temp);
+            character.set("eq_shoes", readShort());
+            character.set("eq_gloves", readShort());
+            character.set("eq_cape", readShort());
+            character.set("eq_misc1", readShort());
+            in.skip(14);
+            character.set("hp", readShort());
+            character.set("max_hp", readShort());
+            character.set("mp", readShort());
+            character.set("max_mp", readShort());
+            in.skip(2);
+            character.set("race", readShort());
+            character.set("hair_style", readShort());
+            character.set("weapon", readShort());
+            character.set("level", readShort());
+            in.skip(2);
+            character.set("eq_bottom", readShort());
+            character.set("eq_shield", readShort());
+            character.set("eq_head", readShort());
+            character.set("eq_top", readShort());
+            character.set("hair_color", readShort());
+            character.set("eq_misc2", readShort());
+            character.set("name", readString(24));
+            character.set("st_str", readByte());
+            character.set("st_agi", readByte());
+            character.set("st_vit", readByte());
+            character.set("st_int", readByte());
+            character.set("st_dex", readByte());
+            character.set("st_luk", readByte());
+            in.skip(2);
+
+            System.out.println(character.get("name") + " (" + character.get("level") + " lvl)");
+
+            if(charCount > 1) in.skip(106 * (charCount - 1));
         }
 
         writeShort(0x0066); // select character request
@@ -686,13 +670,15 @@ public class bot {
 
         sock.close();
 
-        sock = new Socket(mapServerIp, mapServerPort); // char server
+        System.out.println("connecting to map server");
+
+        sock = new Socket(mapServerIp, mapServerPort); // map server
         out = sock.getOutputStream();
         in = sock.getInputStream();
 
         writeShort(0x0072); // CMSG_MAP_SERVER_CONNECT
         writeInt(acid);
-        writeInt(character.id);
+        writeInt(character.get("id").toint());
         writeInt(sid1);
         writeInt(sid2);
         writeByte(gender);
@@ -701,65 +687,160 @@ public class bot {
 
         expectPacket(0x0073); // SMSG_MAP_LOGIN_SUCCESS
         in.skip(4); // server tick
-        readPosition(character);
+        readCoordinates(character);
         in.skip(2);
-        System.out.println(character.x + ", " + character.y + ", " + character.dir);
 
-        boolean mapLoaded = true;
+        Globals globals = JsePlatform.standardGlobals();
 
-        for(;;) {
-            if(mapLoaded) {
-                writeShort(0x007D); // CMSG_MAP_LOADED
-                mapLoaded = false;
-            }
+        globals.set("character", character);
+        globals.set("map_name", mapName);
+        globals.set("beings", beings);
 
-            packet = readShort();
-            switch(packet) {
-                default:
-                    if(packetLength.containsKey(packet)) {
-                        int len = packetLength.get(packet);
-                        if(len == -1) {
-                            len = readShort() - 2;
-                        }
-                        in.skip(len - 2);
-                    } else {
-                        System.out.append("unknown packet ");
-                        printHexShort(packet);
-                        readHex();
-                    }
-            }
-        }
-
-//        sock.close();
-    }
-
-    public static void main(String[] args) throws Exception {
-        bot instance = new bot();
-
-/*
         Thread reader = new Thread(new Runnable() {
             public void run() {
-                while(sock.isConnected()) {
-                    try {
-                        byte b = in.readByte();
-                        printHex(b);
-                        System.out.append(' ');
-                        if(b == '\n') System.out.append('\n');
-                    } catch(Exception e) {
-                        e.printStackTrace();
-                        return;
+                try {
+                    while(!quit) {
+                        if(mapLoaded) {
+                            writeShort(0x007D); // CMSG_MAP_LOADED
+                            mapLoaded = false;
+                        }
+
+                        int packet = readShort();
+                        switch(packet) {
+                            case 0x0078: // SMSG_BEING_VISIBLE
+                            case 0x007B: { // SMSG_BEING_MOVE
+                                int id = readInt();
+                                int speed = readShort();
+                                int stunMode = readShort();
+                                int statusEffects = readShort();
+                                int statusEffects |= readShort() << 16;
+                                int job = readShort();
+
+                                LuaValue being = beings.get(id);
+                                if(being != LuaValue.NIL) {
+                                    if(job == 0 && id >= 110000000) {
+                                        
+                                    } else {
+                                        being = createBeing(id, job);
+                                    }
+                                }
+                                being.set("id", id);
+                                being.set("speed", speed);
+                                being.set("stunmode", stunmode);
+                                being.set("status_effects", statusEffects);
+                                being.set("hair_style", readShort());
+                                being.set("eq_weapon", readShort());
+                                being.set("eq_legs", readShort()); //headbottom
+
+                                if(packet == 0x007B) {
+                                    in.skip(4);
+                                }
+
+                                being.set("eq_shield", readShort());
+                                being.set("eq_head", readShort()); //headtop
+                                being.set("eq_torso", readShort()); //headmid
+                                being.set("hair_color", readShort());
+                                being.set("eq_shoes", readShort());
+                                being.set("eq_gloves", readShort());
+                                being.set("guild", readInt());
+                                in.skip(4);
+                                being.set("status_effect_block", readShort());
+                                in.skip(1);
+                                being.set("gender", readByte());
+                                if(packet == 0x007B) {
+                                    readCoordinatePair(being);
+                                } else {
+                                    readCoordinates(being);
+                                }
+                                in.skip(3);
+
+                            } break;
+                            case 0x0086: { // SMSG_BEING_MOVE_2
+                                int id = readInt();
+                                LuaValue being = beings.get(id);
+                                if(being != LuaValue.NIL) {
+                                    readCoordinatePair(being);
+                                    in.skip(2); //server tick
+                                } else {
+                                    in.skip(7);
+                                }
+                                in.skip(3); // possibly coordinates
+                            } break;
+                            case 0x0080: { // SMSG_BEING_REMOVE
+                                int id = readInt();
+                                LuaValue being = beings.get(id);
+                                if(being != LuaValue.NIL) {
+                                    if(readByte() == 1) {
+                                        being.set("dead", LuaValue.TRUE);
+                                    } else {
+                                        beings.set(id, LuaValue.NIL);
+                                    }
+                                } else {
+                                    in.skip(1);
+                                }
+                            } break;
+                            case 0x0148: { // SMSG_BEING_RESURRECT (8)
+                                int id = readInt();
+                                LuaValue being = beings.get(id);
+                                if(being != LuaValue.NIL) {
+                                    if(readByte() == 1) {
+                                        being.set("dead", LuaValue.FALSE);
+                                    }
+                                } else {
+                                    in.skip(1);
+                                }
+                                in.skip(1);
+                            } break;
+                            case 0x0095: { // SMSG_BEING_NAME_RESPONSE (30)
+                                int id = readInt();
+                                LuaValue being = beings.get(id);
+                                if(being != LuaValue.NIL) {
+                                    being.set("name", readString(24));
+                                } else {
+                                    in.skip(24);
+                                }
+                            } break;
+                            default:
+                                if(packetLength.containsKey(packet)) {
+                                    int len = packetLength.get(packet);
+                                    if(len == -1) {
+                                        len = readShort() - 2;
+                                    }
+                                    in.skip(len - 2);
+                                } else {
+                                    System.out.append("unknown packet ");
+                                    printHexShort(packet);
+                                    readHex();
+                                    quit = true;
+                                }
+                        }
                     }
+                } catch(Exception e) {
+                    e.printStackTrace();
+                    System.exit(1);
+                    quit = true;
                 }
             }
         });
         reader.start();
 
-        out.writeBytes("GET / HTTP/1.1\n");
-        out.writeBytes("Host: doomstal.com\n");
-        out.writeBytes("\n");
+        LuaValue script = globals.loadfile("bot.lua");
+        script.call();
+        LuaValue loopBody = globals.get("loop_body");
 
-        Thread.sleep(1000);
+        while(!quit) {
+            LuaValue ret = loopBody.call();
+            if(ret == LuaValue.FALSE) {
+                quit = true;
+                break;
+            }
+            Thread.sleep(10);
+        }
 
-        */
+        sock.close();
+    }
+
+    public static void main(String[] args) throws Exception {
+        bot instance = new bot();
     }
 }
