@@ -4,6 +4,8 @@ import org.luaj.vm2.Globals;
 import org.luaj.vm2.LuaValue;
 import org.luaj.vm2.LuaNumber;
 import org.luaj.vm2.LuaTable;
+import org.luaj.vm2.Varargs;
+import org.luaj.vm2.lib.VarArgFunction;
 import org.luaj.vm2.lib.jse.JsePlatform;
 
 public class bot {
@@ -20,7 +22,10 @@ public class bot {
     public LuaTable equipment = new LuaTable();
     public LuaTable storage = new LuaTable();
     public LuaTable beings = new LuaTable();
-    public LuaValue leader = LuaValue.NIL;
+
+    public LuaValue script;
+    public LuaValue loopBody;
+    public LuaValue packetHandler;
 
     public String mapServerIp;
     public int mapServerPort;
@@ -68,9 +73,38 @@ public class bot {
         globals.set("storage", storage);
         globals.set("map_name", mapName);
         globals.set("beings", beings);
-        globals.set("leader_id", LuaValue.NIL);
+
+        script = globals.loadfile("bot.lua");
+        script.call();
+        packetHandler = globals.get("packet_handler");
+        loopBody = globals.get("loop_body");
+
+        LuaValue sendPacket = new VarArgFunction() {
+            @Override
+            public Varargs invoke(Varargs args) {
+                try {
+                    String pak = args.arg(1).toString();
+                    switch(pak) {
+                        case "walk": {
+                            int x = args.arg(2).toint();
+                            int y = args.arg(3).toint();
+                            int dir = character.get("dir").toint();
+                            net.writeInt16(0x0085); // CMSG_PLAYER_CHANGE_DEST
+                            net.writeCoordinates(x, y, dir);
+                        } break;
+                    }
+                } catch(IOException e) {
+                    e.printStackTrace();
+                    System.exit(1);
+                }
+                return LuaValue.NIL;
+            }
+        };
+
+        globals.set("send_packet", sendPacket);
 
         Thread reader = new Thread(new Runnable() {
+            @Override
             public void run() {
                 try {
                     while(!quit) {
@@ -132,6 +166,7 @@ public class bot {
                                     net.readCoordinates(being);
                                 }
                                 net.skip(5);
+                                packetHandler.call(LuaValue.valueOf("being_update"), LuaValue.valueOf(id));
                             } break;
                             case 0x0095: { // SMSG_BEING_NAME_RESPONSE (30)
                                 int id = net.readInt32();
@@ -139,14 +174,19 @@ public class bot {
                                 if(being != LuaValue.NIL) {
                                     String name = net.readString(24);
                                     being.set("name", name);
-                                    if(name.equals("doomstal")) {
-                                        globals.set("leader_id", id);
-                                    }
+                                    packetHandler.call(LuaValue.valueOf("being_name"), LuaValue.valueOf(id));
                                 } else {
                                     net.skipPacket();
                                 }
                             } break;
                             case 0x007C: { // SMSG_BEING_SPAWN
+                                int id = net.readInt32();
+                                net.skip(14);
+                                int job = net.readInt16();
+                                net.skip(14);
+                                LuaTable being = new LuaTable();
+                                net.readCoordinates(being);
+                                System.out.println("SMSG_BEING_SPAWN id="+id+" job="+job+" at "+being.get("x")+", "+being.get("y"));
                                 net.skipPacket();
                             } break;
                             case 0x0086: { // SMSG_BEING_MOVE_2
@@ -155,6 +195,7 @@ public class bot {
                                 if(being != LuaValue.NIL) {
                                     net.readCoordinatePair(being);
                                     net.skip(2); //server tick
+                                    packetHandler.call(LuaValue.valueOf("being_update"), LuaValue.valueOf(id));
                                 } else {
                                     net.skip(7);
                                 }
@@ -169,6 +210,7 @@ public class bot {
                                     } else {
                                         beings.set(id, LuaValue.NIL);
                                     }
+                                    packetHandler.call(LuaValue.valueOf("being_remove"), LuaValue.valueOf(id));
                                 } else {
                                     net.skip(1);
                                 }
@@ -180,35 +222,77 @@ public class bot {
                                     if(net.readInt8() == 1) {
                                         being.set("action", "stand");
                                     }
+                                    packetHandler.call(LuaValue.valueOf("being_update"), LuaValue.valueOf(id));
                                 } else {
                                     net.skip(1);
                                 }
                                 net.skip(1);
                             } break;
                             case 0x01DE: { // SMSG_SKILL_DAMAGE
-                                net.skipPacket();
+                                net.skip(2); // skill id
+                                int srcId = net.readInt32();
+                                int dstId = net.readInt32();
+                                LuaValue srcBeing = beings.get(srcId);
+                                LuaValue dstBeing = beings.get(dstId);
+                                net.skip(4); // server tick
+                                int attackSpeed = net.readInt32();
+                                net.skip(4); // dst speed
+                                int dmg = net.readInt32();
+                                net.skip(2); // skill level
+                                net.skip(2); // div
+                                net.skip(1); // skill hit/type (?)
+                                if(attackSpeed != 0 && srcBeing != LuaValue.NIL && srcId != character.get("id").toint()); {
+                                    srcBeing.set("attack_speed", attackSpeed);
+                                }
+                                if(srcBeing != LuaValue.NIL && dstBeing != LuaValue.NIL) {
+                                    packetHandler.invoke(LuaValue.varargsOf(new LuaValue[] {
+                                        LuaValue.valueOf("being_attack"),
+                                        LuaValue.valueOf(srcId),
+                                        LuaValue.valueOf(dstId),
+                                        LuaValue.valueOf(dmg)
+                                    }));
+                                }
                             } break;
                             case 0x008A: { // SMSG_BEING_ACTION (29)
-                                LuaValue srcBeing = beings.get(net.readInt32());
-                                LuaValue dstBeing = beings.get(net.readInt32());
+                                int srcId = net.readInt32();
+                                int dstId = net.readInt32();
+                                LuaValue srcBeing = beings.get(srcId);
+                                LuaValue dstBeing = beings.get(dstId);
                                 net.skip(4); // server tick
                                 net.skip(8); // src speed, dst speed
                                 int param1 = net.readInt16();
                                 net.skip(2); // param2
                                 int type = net.readInt8();
                                 net.skip(2); // param3
+                                String typeStr = "";
 
                                 switch(type) {
                                     case 0x00: // hit
+                                        typeStr = "hit";
+                                    break;
                                     case 0x0A: // critical hit
+                                        typeStr = "critical";
+                                    break;
                                     case 0x08: // multi hit
+                                        typeStr = "multi";
+                                    break;
                                     case 0x0B: // flee
+                                        typeStr = "flee";
                                     break;
                                     case 0x02: // sit
+                                        typeStr = "sit";
                                     break;
                                     case 0x03: // stand up
+                                        typeStr = "stand";
                                     break;
                                 }
+                                packetHandler.invoke(LuaValue.varargsOf(new LuaValue[] {
+                                    LuaValue.valueOf("being_action"),
+                                    LuaValue.valueOf(srcId),
+                                    LuaValue.valueOf(dstId),
+                                    LuaValue.valueOf(typeStr),
+                                    LuaValue.valueOf(param1)
+                                }));
                             } break;
                             case 0x019B: { // SMSG_BEING_SELFEFFECT (10)
                                 int id = net.readInt32();
@@ -218,13 +302,25 @@ public class bot {
                                     break;
                                 }
                                 int effectType = net.readInt32();
+                                packetHandler.call(
+                                    LuaValue.valueOf("being_selfeffect"),
+                                    LuaValue.valueOf(id),
+                                    LuaValue.valueOf(effectType)
+                                );
                             } break;
                             case 0x00C0: { // SMSG_BEING_EMOTION (7)
-                                net.skipPacket();
+                                int dstId = net.readInt32();
+                                int emote = net.readInt8();
+                                packetHandler.call(
+                                    LuaValue.valueOf("being_emote"),
+                                    LuaValue.valueOf(dstId),
+                                    LuaValue.valueOf(emote)
+                                );
                             } break;
                             case 0x00C3: // SMSG_BEING_CHANGE_LOOKS (8)
                             case 0x01D7: { // SMSG_BEING_CHANGE_LOOKS2 (11)
-                                LuaValue being = beings.get(net.readInt32());
+                                int dstId = net.readInt32();
+                                LuaValue being = beings.get(dstId);
                                 if(being == LuaValue.NIL) {
                                     net.skipPacket();
                                     break;
@@ -232,6 +328,7 @@ public class bot {
                                 int type = net.readInt8();
                                 int id = 0;
                                 int id2 = 0;
+                                String typeStr = "";
                                 if(packet == 0x00C3) {
                                     id = net.readInt8();
                                 } else {
@@ -240,43 +337,60 @@ public class bot {
                                 }
                                 switch(type) {
                                     case 1:
+                                        typeStr = "hair_type";
                                         being.set("hair_type", id);
                                     break;
                                     case 2:
+                                        typeStr = "eq_weapon+eq_shield";
                                         being.set("eq_weapon", id);
                                         being.set("eq_shield", id2);
                                     break;
                                     case 3:
+                                        typeStr = "eq_legs";
                                         being.set("eq_legs", id);
                                     break;
                                     case 4:
+                                        typeStr = "eq_head";
                                         being.set("eq_head", id);
                                     break;
                                     case 5:
+                                        typeStr = "eq_torso";
                                         being.set("eq_torso", id);
                                     break;
                                     case 6:
+                                        typeStr = "hair_color";
                                         being.set("hair_color", id);
                                     break;
                                     case 8:
+                                        typeStr = "eq_shield";
                                         being.set("eq_shield", id);
                                     break;
                                     case 9:
+                                        typeStr = "eq_shoes";
                                         being.set("eq_shoes", id);
                                     break;
                                     case 10:
+                                        typeStr = "eq_gloves";
                                         being.set("eq_gloves", id);
                                     break;
                                     case 11:
+                                        typeStr = "eq_cape";
                                         being.set("eq_cape", id);
                                     break;
                                     case 12:
+                                        typeStr = "eq_misc1";
                                         being.set("eq_misc1", id);
                                     break;
                                     case 13:
+                                        typeStr = "eq_misc2";
                                         being.set("eq_misc2", id);
                                     break;
                                 }
+                                packetHandler.call(
+                                    LuaValue.valueOf("being_change_looks"),
+                                    LuaValue.valueOf(dstId),
+                                    LuaValue.valueOf(typeStr)
+                                );
                             } break;
                             case 0x0195: { // SMSG_PLAYER_GUILD_PARTY_INFO (102)
                                 LuaValue being = beings.get(net.readInt32());
@@ -631,10 +745,6 @@ public class bot {
             }
         });
         reader.start();
-
-        LuaValue script = globals.loadfile("bot.lua");
-        script.call();
-        LuaValue loopBody = globals.get("loop_body");
 
         while(!quit) {
             LuaValue ret = loopBody.call();

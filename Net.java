@@ -181,6 +181,22 @@ public class Net {
         }
     }
 
+    public void writeCoordinates(int x, int y, int dir) throws IOException {
+        int b0;
+        int b1;
+        int b2;
+        int tmp = x << 6;
+        b0 = (tmp >> 8) & 0xFF;
+        b1 = tmp & 0xC0;
+        tmp = y << 4;
+        b1 |= (tmp >> 8) & 0x3F;
+        b2 = tmp & 0xF0;
+        b2 |= dir & 0x0F;
+        writeInt8(b0);
+        writeInt8(b1);
+        writeInt8(b2);
+    }
+
     public void connect(bot b) throws IOException {
         System.out.println("connecting to login server");
 
