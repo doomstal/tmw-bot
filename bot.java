@@ -63,6 +63,21 @@ public class bot {
         return being;
     }
 
+    public LuaValue equipType(int type) {
+        if(type == 0) return NIL;
+        if((type & 0x0001) != 0) return valueOf("legs");
+        if((type & 0x0002) != 0) return valueOf("weapon");
+        if((type & 0x0004) != 0) return valueOf("gloves");
+        if((type & 0x0008) != 0) return valueOf("necklace");
+        if((type & 0x0010) != 0) return valueOf("ring1");
+        if((type & 0x0020) != 0) return valueOf("shield");
+        if((type & 0x0040) != 0) return valueOf("shoes");
+        if((type & 0x0080) != 0) return valueOf("ring2");
+        if((type & 0x0100) != 0) return valueOf("head");
+        if((type & 0x0200) != 0) return valueOf("torso");
+        return valueOf(type);
+    }
+
     public bot() throws Exception {
         net.connect(this);
 
@@ -92,6 +107,62 @@ public class bot {
                             int dir = character.get("dir").toint();
                             net.writeInt16(0x0085); // CMSG_PLAYER_CHANGE_DEST
                             net.writeCoordinates(x, y, dir);
+                        } break;
+                        case "talk": {
+                            String msg = character.get("name") + " : " + args.arg(2).toString();
+                            net.writeInt16(0x008C); // CMSG_CHAT_MESSAGE
+                            net.writeInt16(4 + msg.length() + 1);
+                            net.writeString(msg.length() + 1, msg);
+                        } break;
+                        case "whisper": {
+                            String nick = args.arg(2).toString();
+                            String msg = args.arg(3).toString();
+                            net.writeInt16(0x0096); // CMSG_CHAT_WHISPER
+                            net.writeInt16(msg.length() + 28);
+                            net.writeString(24, nick);
+                            net.writeString(msg.length(), msg);
+                        } break;
+                        case "storage_close": {
+                            net.writeInt16(0x00F8); // CMSG_CLOSE_STORAGE
+                        } break;
+                        case "equip": {
+                            int index = args.arg(2).toint();
+                            net.writeInt16(0x00A9); // CMSG_PLAYER_EQUIP
+                            net.writeInt16(index);
+                            net.writeInt16(0);
+                        } break;
+                        case "unequip": {
+                            int index = args.arg(2).toint();
+                            net.writeInt16(0x00AB); // CMSG_PLAYER_UNEQUIP
+                            net.writeInt16(index);
+                        } break;
+                        case "use": {
+                            int index = args.arg(2).toint();
+                            LuaValue item = inventory.get(index);
+                            net.writeInt16(0x00A7); // CMSG_PLAYER_INVENTORY_USE
+                            net.writeInt16(index);
+                            net.writeInt32(item.get("id").toint());
+                        } break;
+                        case "drop": {
+                            int index = args.arg(2).toint();
+                            int amount = args.arg(3).toint();
+                            net.writeInt16(0x00A2); // CMSG_PLAYER_INVENTORY_DROP
+                            net.writeInt16(index);
+                            net.writeInt16(amount);
+                        } break;
+                        case "to_storage": {
+                            int index = args.arg(2).toint();
+                            int amount = args.arg(3).toint();
+                            net.writeInt16(0x00F3); // CMSG_MOVE_TO_STORAGE
+                            net.writeInt16(index);
+                            net.writeInt16(amount);
+                        } break;
+                        case "from_storage": {
+                            int index = args.arg(2).toint();
+                            int amount = args.arg(3).toint();
+                            net.writeInt16(0x00F5); // CMSG_MOVE_FROM_STORAGE
+                            net.writeInt16(index);
+                            net.writeInt16(amount);
                         } break;
                     }
                 } catch(IOException e) {
@@ -407,7 +478,7 @@ public class bot {
                                 packetHandler.call(
                                     valueOf("being_guild_info"),
                                     valueOf(id)
-                                );                                    
+                                );
                             } break;
                             case 0x009C: { // SMSG_BEING_CHANGE_DIRECTION (9)
                                 int id = net.readInt32();
@@ -594,10 +665,10 @@ public class bot {
                             case 0x01EE: // SMSG_PLAYER_INVENTORY
                             case 0x01F0: { // SMSG_PLAYER_STORAGE_ITEMS
                                 if(packet == 0x01EE) {
-                                    //equipment = new LuaTable();
                                     inventory = new LuaTable();
-                                    //globals.set("equipment", equipment);
                                     globals.set("inventory", inventory);
+                                    equipment = new LuaTable();
+                                    globals.set("equipment", equipment);
                                 } else {
                                     storage = new LuaTable();
                                     globals.set("storage", storage);
@@ -619,6 +690,9 @@ public class bot {
                                         storage.set(index, item);
                                     }
                                 }
+                                packetHandler.call(
+                                    (packet == 0x01EE) ? valueOf("inventory_update") : valueOf("storage_update")
+                                );
                             } break;
                             case 0x00A6: { // SMSG_PLAYER_STORAGE_EQUIP
                                 int number = (net.getPacketLength() - 4) / 20;
@@ -636,12 +710,14 @@ public class bot {
                                     net.skip(8); // cards
                                     storage.set(index, item);
                                 }
+                                packetHandler.call(valueOf("storage_update"));
                             } break;
                             case 0x00A0: { // SMSG_PLAYER_INVENTORY_ADD
                                 int index = net.readInt16();
+                                int amount = net.readInt16();
                                 LuaTable item = new LuaTable();
                                 item.set("index", index);
-                                item.set("amount", net.readInt16());
+                                item.set("amount", amount);
                                 item.set("id", net.readInt16());
                                 net.skip(1); // identified
                                 net.skip(1); // attribute
@@ -652,10 +728,11 @@ public class bot {
                                 if(net.readInt8() == 0) {
                                     LuaValue item1 = inventory.get(index);
                                     if(item1 != NIL && item1.get("id") == item.get("id")) {
-                                        item.set("amount", item.get("amount").toint() + item1.get("amount").toint());
+                                        item.set("amount", amount + item1.get("amount").toint());
                                     }
                                     inventory.set(index, item);
                                 }
+                                packetHandler.call(valueOf("inventory_update"));
                             } break;
                             case 0x00AF: { // SMSG_PLAYER_INVENTORY_REMOVE
                                 int index = net.readInt16();
@@ -667,12 +744,31 @@ public class bot {
                                         inventory.set(index, NIL);
                                     }
                                 }
+                                packetHandler.call(valueOf("inventory_update"));
+                            } break;
+                            case 0x01C8: { // SMSG_PLAYER_INVENTORY_USE
+                                int index = net.readInt16();
+                                net.skip(2); // item id
+                                net.skip(4); // id
+                                int amount = net.readInt16();
+                                net.skip(1); // type
+                                LuaValue item = inventory.get(index);
+                                if(item != NIL) {
+                                    if(amount > 0) {
+                                        item.set("amount", amount);
+                                    } else {
+                                        inventory.set(index, NIL);
+                                    }
+                                }
+                                packetHandler.call(valueOf("inventory_update"));
                             } break;
                             case 0x00A8: { // SMSG_ITEM_USE_RESPONSE
                                 int index = net.readInt16();
                                 int amount = net.readInt16();
+                                LuaValue result = TRUE;
                                 if(net.readInt8() == 0) {
                                     // failed to use item
+                                    result = FALSE;
                                 } else {
                                     LuaValue item = inventory.get(index);
                                     if(item != NIL) {
@@ -683,13 +779,16 @@ public class bot {
                                         }
                                     }
                                 }
+                                packetHandler.call(
+                                    valueOf("item_use_response"),
+                                    result
+                                );
                             } break;
                             case 0x00F2: { // SMSG_PLAYER_STORAGE_STATUS
                                 net.skip(2); // used count (?)
                                 int size = net.readInt16(); // max size
-                                storage = new LuaTable();
-                                storage.set("size", size);
-                                globals.set("storage", storage);
+                                globals.set("storage_size", size);
+                                packetHandler.call(valueOf("storage_status"));
                             } break;
                             case 0x00F4: { // SMSG_PLAYER_STORAGE_ADD
                                 int index = net.readInt16();
@@ -709,6 +808,7 @@ public class bot {
                                 } else {
                                     storage.set(index, item);
                                 }
+                                packetHandler.call(valueOf("storage_update"));
                             } break;
                             case 0x00F6: { // SMSG_PLAYER_STORAGE_REMOVE
                                 int index = net.readInt16();
@@ -720,8 +820,10 @@ public class bot {
                                         storage.set(index, NIL);
                                     }
                                 }
+                                packetHandler.call(valueOf("storage_update"));
                             } break;
                             case 0x00F8: { // SMSG_PLAYER_STORAGE_CLOSE
+                                packetHandler.call(valueOf("storage_close"));
                             } break;
                             case 0x00A4: { // SMSG_PLAYER_EQUIPMENT
                                 equipment = new LuaTable();
@@ -736,41 +838,77 @@ public class bot {
                                     net.skip(1); // identified
                                     net.skip(2); // equip type
                                     int type = net.readInt16();
+                                    if(type != 0) {
+                                        item.set("equip", equipType(type));
+                                    }
                                     net.skip(1); // attribute
                                     net.skip(1); // refine
                                     net.skip(8); // cards
-                                    inventory.set(index, item);
-                                    if(type != 0) {
-                                        equipment.set(type, valueOf(index));
+                                    if(type == 0) {
+                                        inventory.set(index, item);
+                                    } else {
+                                        equipment.set(index, item);
                                     }
                                 }
+                                packetHandler.call(valueOf("inventory_update"));
                             } break;
                             case 0x00AA: { // SMSG_PLAYER_EQUIP
                                 int index = net.readInt16();
                                 int type = net.readInt16();
+                                LuaValue result = TRUE;
                                 if(net.readInt8() == 0) {
                                     // unable to equip
+                                    result = FALSE;
                                 } else {
-                                    equipment.set(type, valueOf(index));
+                                    LuaValue item = inventory.get(index);
+                                    if(item != NIL) {
+                                        item.set("equip", equipType(type));
+                                        equipment.set(index, item);
+                                        inventory.set(index, NIL);
+                                    }
                                 }
+                                packetHandler.call(
+                                    valueOf("equip"),
+                                    result,
+                                    valueOf(index)
+                                );
                             } break;
                             case 0x00AC: { // SMSG_PLAYER_UNEQUIP
                                 int index = net.readInt16();
                                 int type = net.readInt16();
+                                LuaValue result = TRUE;
                                 if(net.readInt8() == 0) {
                                     // unable to unequip
+                                    result = FALSE;
                                 } else {
-                                    equipment.set(type, NIL);
-                                    character.set("attack_range", -1);
+                                    LuaValue item = equipment.get(index);
+                                    if(item != NIL) {
+                                        item.set("equip", NIL);
+                                        equipment.set(index, NIL);
+                                        inventory.set(index, item);
+                                        character.set("attack_range", -1);
+                                    }
                                 }
+                                packetHandler.call(
+                                    valueOf("unequip"),
+                                    result,
+                                    valueOf(index)
+                                );
                             } break;
                             case 0x013A: { // SMSG_PLAYER_ATTACK_RANGE
                                 character.set("attack_range", net.readInt16());
+                                packetHandler.call(valueOf("char_update"));
                             } break;
                             case 0x013C: { // SMSG_PLAYER_ARROW_EQUIP
                                 int index = net.readInt16();
                                 if(index <= 1) break;
-                                equipment.set(10, valueOf(index)); // projectile slot
+                                LuaValue item = equipment.get(index);
+                                if(item != NIL) {
+                                    item.set("equip", "arrow");
+                                    equipment.set(index, item);
+                                    inventory.set(index, NIL);
+                                }
+                                packetHandler.call(valueOf("inventory_update"));
                             } break;
                             default:
                                 net.skipPacket();
