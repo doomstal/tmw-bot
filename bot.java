@@ -23,6 +23,8 @@ public class bot {
     public LuaTable equipment = new LuaTable();
     public LuaTable storage = new LuaTable();
     public LuaTable beings = new LuaTable();
+    public LuaTable buy_sell = new LuaTable();
+    public LuaTable items = new LuaTable();
 
     public LuaValue script;
     public LuaValue loopBody;
@@ -89,6 +91,8 @@ public class bot {
         globals.set("storage", storage);
         globals.set("map_name", mapName);
         globals.set("beings", beings);
+        globals.set("buy_sell", buy_sell);
+        globals.set("items", items);
 
         script = globals.loadfile("bot.lua");
         script.call();
@@ -164,6 +168,12 @@ public class bot {
                             net.writeInt16(index);
                             net.writeInt16(amount);
                         } break;
+                        case "npc_talk": {
+                            int npcId = args.arg(2).toint();
+                            net.writeInt16(0x0090); // CMSG_NPC_TALK
+                            net.writeInt32(npcId);
+                            net.writeInt8(0);
+                        }
                     }
                 } catch(IOException e) {
                     e.printStackTrace();
@@ -909,6 +919,79 @@ public class bot {
                                     inventory.set(index, NIL);
                                 }
                                 packetHandler.call(valueOf("inventory_update"));
+                            } break;
+                            case 0x00C4: { // SMSG_NPC_BUY_SELL_CHOISE
+                                int npcId = net.readInt32();
+                                packetHandler.call(
+                                    valueOf("buy_sell_choise"),
+                                    valueOf(npcId)
+                                );
+                            } break;
+                            case 0x00C6: { // SMSG_NPC_BUY
+                                int count = (net.getPacketLength() - 4) / 11;
+                                buy_sell = new LuaTable();
+                                globals.set("buy_sell", buy_sell);
+                                for(int i=0; i!=count; ++i) {
+                                    int value = net.readInt32();
+                                    net.skip(4); // dcvalue (?)
+                                    net.skip(1); // type
+                                    int itemId = net.readInt16();
+                                    LuaTable item = new LuaTable();
+                                    item.set("id", itemId);
+                                    item.set("value", value);
+                                    buy_sell.set(i+1, item);
+                                }
+                                packetHandler.call(valueOf("buy_items"));
+                            } break;
+                            case 0x00C7: { // SMSG_NPC_SELL
+                                int count = (net.getPacketLength() - 4) / 10;
+                                buy_sell = new LuaTable();
+                                globals.set("buy_sell", buy_sell);
+                                for(int i=0; i!=count; ++i) {
+                                    int index = net.readInt16();
+                                    int value = net.readInt32();
+                                    net.skip(4); // ocvalue
+                                    LuaValue item = inventory.get(index);
+                                    if(item != NIL) {
+                                        buy_sell.set(i+1, item);
+                                    }
+                                }
+                                packetHandler.call(valueOf("sell_items"));
+                            } break;
+                            case 0x00CA: { // SMSG_NPC_BUY_RESPONSE
+                                packetHandler.call(
+                                    valueOf("buy_response"),
+                                    (net.readInt8() == 0) ? TRUE : FALSE
+                                );
+                            } break;
+                            case 0x00CB: { // SMSG_NPC_SELL_RESPONSE
+                                packetHandler.call(
+                                    valueOf("sell_response"),
+                                    (net.readInt8() == 0) ? TRUE : FALSE
+                                );
+                            } break;
+                            case 0x009D: // SMSG_ITEM_VISIBLE
+                            case 0x009E: { // SMSG_ITEM_DROPPED
+                                int id = net.readInt32();
+                                LuaTable item = new LuaTable();
+                                item.set("id", id);
+                                item.set("item_id", net.readInt32());
+                                net.skip(1); // identified
+                                item.set("x", net.readInt16());
+                                item.set("y", net.readInt16());
+                                net.skip(4); // amount,subX,subY / subX,subY,amount
+                                items.set(id, item);
+                                packetHandler.call(valueOf("item_update"));
+                            } break;
+                            case 0x00A1: { // SMSG_ITEM_REMOVE
+                                int id = net.readInt32();
+                                items.set(id, NIL);
+                                packetHandler.call(valueOf("item_remove"), valueOf(id));
+                            } break;
+                            case 0x00B7: { // SMSG_NPC_CHOISE
+                                int npcId = net.readInt32();
+                                String msg = net.readString(net.getPacketLength() - 8);
+                                System.out.println("#" + msg + "#");
                             } break;
                             default:
                                 net.skipPacket();

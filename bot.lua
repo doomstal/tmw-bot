@@ -11,7 +11,10 @@ function packet_handler(...)
     if args[1] == "being_name" and beings[args[2]].name == "doomstal" then
         leader = beings[args[2]]
         print("leader found! ", args[2])
-        send_packet("talk", "hello!")
+        --send_packet("talk", "hello!")
+    end
+    if args[1] == "being_name" and beings[args[2]].name == "Ferry Schedule" then
+        --send_packet("npc_talk", args[2])
     end
     if args[1] == "whisper" then
         local nick = args[2]
@@ -25,7 +28,7 @@ end
 tick = 0
 
 function loop_body()
---    tick = tick + 1
+    tick = tick + 1
 --[[
     if tick > 200 then
         for i, item in pairs(equipment) do
@@ -38,12 +41,12 @@ function loop_body()
         return false
     end
 ]]
---[[    if tick > 100 then
+    if tick > 100 then
         tick = 0
         if leader then
             send_packet("walk", leader.x, leader.y)
         end
     end
-]]
+
     return true
 end
