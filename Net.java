@@ -223,6 +223,7 @@ public class Net {
         BufferedReader br = new BufferedReader(new FileReader(file));
         String username = br.readLine();
         String password = br.readLine();
+        String charname = br.readLine();
 
         writeInt16(0x0064); // login request
         writeInt32(0);

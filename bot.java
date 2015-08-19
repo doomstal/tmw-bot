@@ -174,7 +174,64 @@ public class bot {
                             net.writeInt16(0x0090); // CMSG_NPC_TALK
                             net.writeInt32(npcId);
                             net.writeInt8(0);
-                        }
+                        } break;
+                        case "npc_buy_sell": {
+                            int npcId = args.arg(2).toint();
+                            boolean buy_sell = args.arg(3).toboolean(); // true for selling
+                            net.writeInt16(0x00C5); // CMSG_NPC_BUY_SELL_REQUEST
+                            net.writeInt32(npcId);
+                            net.writeInt8( buy_sell ? 1 : 0 );
+                        } break;
+                        case "npc_buy_item": {
+                            int npcId = args.arg(2).toint();
+                            int itemId = args.arg(3).toint();
+                            int amount = args.arg(4).toint();
+                            net.writeInt16(0x00C8); // CMSG_NPC_BUY_REQUEST
+                            net.writeInt16(8); // one item (length of packet)
+                            net.writeInt16(amount);
+                            net.writeInt16(itemId);
+                        } break;
+                        case "npc_sell_item": {
+                            int npcId = args.arg(2).toint();
+                            int itemId = args.arg(3).toint();
+                            int amount = args.arg(4).toint();
+                            net.writeInt16(0x00C9); // CMSG_NPC_SELL_REQUEST
+                            net.writeInt16(8);
+                            net.writeInt16(itemId);
+                            net.writeInt16(amount);
+                        } break;
+                        case "npc_next": {
+                            int npcId = args.arg(2).toint();
+                            net.writeInt16(0x00B9); // CMSG_NPC_NEXT_REQUEST
+                            net.writeInt32(npcId);
+                        } break;
+                        case "npc_close": {
+                            int npcId = args.arg(2).toint();
+                            net.writeInt16(0x0146); // CMSG_NPC_CLOSE
+                            net.writeInt32(npcId);
+                        } break;
+                        case "npc_choise": {
+                            int npcId = args.arg(2).toint();
+                            int choise = args.arg(3).toint();
+                            net.writeInt16(0x00B8); // CMSG_LIST_CHOISE
+                            net.writeInt32(npcId);
+                            net.writeInt8(choise);
+                        } break;
+                        case "npc_int_input": {
+                            int npcId = args.arg(2).toint();
+                            int value = args.arg(3).toint();
+                            net.writeInt16(0x0143); // CMSG_NPC_INT_RESPONSE
+                            net.writeInt32(npcId);
+                            net.writeInt32(value);
+                        } break;
+                        case "npc_str_input": {
+                            int npcId = args.arg(2).toint();
+                            String value = args.arg(3).toString();
+                            net.writeInt16(0x01D5); // CMSG_NPC_STR_RESPONSE
+                            net.writeInt16(value.length() + 9);
+                            net.writeInt32(npcId);
+                            net.writeString(value.length() + 1, value);
+                        } break;
                     }
                 } catch(IOException e) {
                     e.printStackTrace();
@@ -992,7 +1049,40 @@ public class bot {
                             case 0x00B7: { // SMSG_NPC_CHOISE
                                 int npcId = net.readInt32();
                                 String msg = net.readString(net.getPacketLength() - 8);
-                                System.out.println("#" + msg + "#");
+                                String[] choises = msg.split(":");
+                                LuaTable t_choises = new LuaTable();
+                                for(int i=0; i!=choises.length; ++i) {
+                                    t_choises.set(i+1, valueOf(choises[i]));
+                                }
+                                packetHandler.call(
+                                    valueOf("npc_choise"),
+                                    valueOf(npcId),
+                                    t_choises
+                                );
+                            } break;
+                            case 0x00B4: { // SMSG_NPC_MESSAGE
+                                int npcId = net.readInt32();
+                                String msg = net.readString(net.getPacketLength() - 8);
+                                packetHandler.call(
+                                    valueOf("npc_message"),
+                                    valueOf(msg)
+                                );
+                            } break;
+                            case 0x00B6: { // SMSG_NPC_CLOSE
+                                int npcId = net.readInt32();
+                                packetHandler.call(valueOf("npc_close"), valueOf(npcId));
+                            } break;
+                            case 0x00B5: { // SMSG_NPC_NEXT
+                                int npcId = net.readInt32();
+                                packetHandler.call(valueOf("npc_next"), valueOf(npcId));
+                            } break;
+                            case 0x0142: { // SMSG_NPC_INT_INPUT
+                                int npcId = net.readInt32();
+                                packetHandler.call(valueOf("npc_int_input"), valueOf(npcId));
+                            } break;
+                            case 0x01D4: { // SMSG_NPC_STR_INPUT
+                                int npcId = net.readInt32();
+                                packetHandler.call(valueOf("npc_str_input"), valueOf(npcId));
                             } break;
                             default:
                                 net.skipPacket();
