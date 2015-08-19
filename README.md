@@ -1,7 +1,7 @@
 # tmw-bot
 simple bot for The Mana World
 
-currently it has no config file, so change bot's username/password in Net.java at lines 221-222
+change username/password in config.txt
 
 0. download luaj from http://sourceforge.net/projects/luaj/
 1. create directory lib, and put luaj-jse-3.0.1.jar there
