@@ -23,3 +23,6 @@ stores merchant npc's buy or sell list
 
 (table) items
 stores dropped items. indexes are being ids
+
+(table) skills
+contains character skills

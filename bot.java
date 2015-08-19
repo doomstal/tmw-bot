@@ -25,6 +25,8 @@ public class bot {
     public LuaTable beings = new LuaTable();
     public LuaTable buy_sell = new LuaTable();
     public LuaTable items = new LuaTable();
+    public LuaTable skills = new LuaTable();
+
     public Globals globals;
 
     public LuaValue script;
@@ -1287,6 +1289,39 @@ public class bot {
                             } break;
                             case 0x013B: { // SMSG_PLAYER_ARROW_MESSAGE
                                 int type = net.readInt16();
+                            } break;
+                            case 0x010F: { // SMSG_PLAYER_SKILLS
+                                skills = new LuaTable();
+                                globals.set("skills", skills);
+                                int count = (net.getPacketLength() - 4) / 37;
+                                for(int i=0; i!=count; ++i) {
+                                    int id = net.readInt16();
+                                    LuaTable skill = new LuaTable();
+                                    skill.set("id", id);
+                                    net.skip(2); // target type
+                                    net.skip(2); // unused
+                                    skill.set("level", net.readInt16());
+                                    net.skip(2); // sp
+                                    net.skip(2); // range
+                                    net.skip(24); // unused
+                                    skill.set("up", net.readInt8());
+                                    skills.set(id, skill);
+                                }
+                                packetHandler.call(valueOf("char_update"));
+                            } break;
+                            case 0x010E: { // SMSG_PLAYER_SKILL_UP
+                                int id = net.readInt16();
+                                LuaTable skill = new LuaTable();
+                                skill.set("id", id);
+                                skill.set("level", net.readInt16());
+                                net.skip(2); // sp
+                                net.skip(2); // range
+                                skill.set("up", net.readInt8());
+                                skills.set(id, skill);
+                                packetHandler.call(valueOf("char_update"));
+                            } break;
+                            case 0x0110: { // SMSG_SKILL_FAILED
+                                net.skipPacket();
                             } break;
                             default:
                                 net.skipPacket();
