@@ -78,3 +78,19 @@ id is index for `items`
 
 "respawn"
 
+"trade_request"              (int) beingId
+send trade request
+
+"trade_response"             (bool) accept
+answer trade request
+
+"trade_add"                  (int) index         (int) amount
+add item from inventory
+
+"trade_set_money"            (int) amount
+
+"trade_confirm"
+
+"trade_finish"
+
+"trade_cancel"

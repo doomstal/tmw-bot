@@ -26,6 +26,8 @@ public class bot {
     public LuaTable buy_sell = new LuaTable();
     public LuaTable items = new LuaTable();
     public LuaTable skills = new LuaTable();
+    public LuaTable trade_buy = new LuaTable();
+    public LuaTable trade_sell = new LuaTable();
 
     public Globals globals;
 
@@ -96,6 +98,9 @@ public class bot {
         globals.set("beings", beings);
         globals.set("buy_sell", buy_sell);
         globals.set("items", items);
+        globals.set("skills", skills);
+        globals.set("trade_buy", trade_buy);
+        globals.set("trade_sell", trade_sell);
 
         script = globals.loadfile("bot.lua");
         script.call();
@@ -290,6 +295,38 @@ public class bot {
                         case "respawn": {
                             net.writeInt16(0x00B2); // CMSG_PLAYER_RESTART
                             net.writeInt8(0);
+                        } break;
+                        case "trade_request": {
+                            int id = args.arg(2).toint();
+                            net.writeInt16(0x00E4); // CMSG_TRADE_REQUEST
+                            net.writeInt32(id);
+                        } break;
+                        case "trade_response": {
+                            boolean accept = args.arg(2).toboolean();
+                            net.writeInt16(0x00E6); // CMSG_TRADE_RESPONSE
+                            net.writeInt8(accept ? 3 : 4);
+                        } break;
+                        case "trade_add": {
+                            int index = args.arg(2).toint();
+                            int amount = args.arg(3).toint();
+                            net.writeInt16(0x00E8); // CMSG_TRADE_ITEM_ADD_REQUEST
+                            net.writeInt16(index);
+                            net.writeInt32(amount);
+                        } break;
+                        case "trade_set_money": {
+                            int amount = args.arg(3).toint();
+                            net.writeInt16(0x00E8); // CMSG_TRADE_ITEM_ADD_REQUEST
+                            net.writeInt16(0);
+                            net.writeInt32(amount);
+                        } break;
+                        case "trade_confirm": {
+                            net.writeInt16(0x00EB); // CMSG_TRADE_ADD_COMPLETE
+                        } break;
+                        case "trade_finish": {
+                            net.writeInt16(0x00EF); // CMSG_TRADE_OK
+                        } break;
+                        case "trade_cancel": {
+                            net.writeInt16(0x00EE); // CMSG_TRADE_CANCEL
                         } break;
                     }
                 } catch(IOException e) {
@@ -1160,10 +1197,10 @@ public class bot {
                                     case 0x0004: break; // manner
                                     case 0x0005: character.set("hp", value); break;
                                     case 0x0006: character.set("max_hp", value); break;
-                                    case 0x0007: character.set("mp" value); break;
+                                    case 0x0007: character.set("mp", value); break;
                                     case 0x0008: character.set("max_mp", value); break;
-                                    case 0x0009: character.set("char_points" value); break;
-                                    case 0x000B: character.set("level" value); break;
+                                    case 0x0009: character.set("char_points", value); break;
+                                    case 0x000B: character.set("level", value); break;
                                     case 0x000C: character.set("skill_points", value); break;
                                     case 0x0018: character.set("total_weight", value); break;
                                     case 0x0019: character.set("max_weight", value); break;
@@ -1188,7 +1225,7 @@ public class bot {
                             case 0x00B1: { // SMSG_PLAYER_STAT_UPDATE_2
                                 int type = net.readInt16();
                                 int value = net.readInt32();
-                                switch(net.readInt16()) {
+                                switch(type) {
                                     case 0x0001: character.set("exp", value); break;
                                     case 0x0002: character.set("job_exp", value); break;
                                     case 0x0014: character.set("money", value); break;
@@ -1271,7 +1308,7 @@ public class bot {
                                 character.set("flee_base", net.readInt16());
                                 character.set("flee_mod", net.readInt16());
                                 character.set("critical", net.readInt16());
-                                net.skip(2); // manner
+                                net.skip(4); // karma, manner
                                 packetHandler.call(valueOf("char_update"));
                             } break;
                             case 0x00BE: { // SMSG_PLAYER_STAT_UPDATE_6
@@ -1322,6 +1359,82 @@ public class bot {
                             } break;
                             case 0x0110: { // SMSG_SKILL_FAILED
                                 net.skipPacket();
+                            } break;
+                            case 0x00E5: { // SMSG_TRADE_REQUEST
+                                String name = net.readString(24);
+                                packetHandler.call(valueOf("trade_request"), valueOf(name));
+                            } break;
+                            case 0x00E7: { // SMSG_TRADE_RESPONSE
+                                String result = "";
+                                switch(net.readInt8()) {
+                                    case 0: result = "far_away"; break;
+                                    case 1: result = "not_exist"; break;
+                                    case 2: result = "fail"; break;
+                                    case 3: result = "ok"; break;
+                                    case 4: result = "cancel"; break;
+                                }
+                                trade_buy = new LuaTable();
+                                trade_sell = new LuaTable();
+                                globals.set("trade_buy", trade_buy);
+                                globals.set("trade_sell", trade_sell);
+                                packetHandler.call(valueOf("trade_response"), valueOf(result));
+                            } break;
+                            case 0x00E9: { // SMSG_TRADE_ITEM_ADD
+                                int amount = net.readInt32();
+                                int id = net.readInt16();
+                                net.skip(1); // identified
+                                net.skip(1); // attribute
+                                net.skip(1); // refine
+                                net.skip(8); // cards
+                                if(id == 0) {
+                                    trade_buy.set("money", amount);
+                                } else {
+                                    LuaTable item = new LuaTable();
+                                    item.set("id", id);
+                                    item.set("amount", amount);
+                                    trade_buy.set(id, item);
+                                }
+                                packetHandler.call(valueOf("trade_update"));
+                            } break;
+                            case 0x01B1: { // SMSG_TRADE_ITEM_ADD_RESPONSE
+                                int index = net.readInt16();
+                                String result;
+                                if(inventory.get(index) == NIL && equipment.get(index) == NIL) {
+                                    result = "ok";
+                                } else {
+                                    int amount = net.readInt16();
+                                    switch(net.readInt8()) {
+                                        case 0: // success
+                                            result = "ok";
+                                        break;
+                                        case 1:
+                                            result = "overweighted";
+                                        break;
+                                        case 2:
+                                            result = "no_slot";
+                                        break;
+                                        default:
+                                            result = "fail";
+                                    }
+                                }
+                                packetHandler.call(valueOf("trade_add_response"), valueOf(result));
+                            } break;
+                            case 0x00EC: { // SMSG_TRADE_OK
+                                packetHandler.call(valueOf("trade_confirm"), valueOf(net.readInt8()));
+                            } break;
+                            case 0x00EE: { // SMSG_TRADE_CANCEL
+                                trade_buy = new LuaTable();
+                                trade_sell = new LuaTable();
+                                globals.set("trade_buy", trade_buy);
+                                globals.set("trade_sell", trade_sell);
+                                packetHandler.call(valueOf("trade_cancel"));
+                            } break;
+                            case 0x00F0: { // SMSG_TRADE_COMPLETE
+                                trade_buy = new LuaTable();
+                                trade_sell = new LuaTable();
+                                globals.set("trade_buy", trade_buy);
+                                globals.set("trade_sell", trade_sell);
+                                packetHandler.call(valueOf("trade_complete"));
                             } break;
                             default:
                                 net.skipPacket();

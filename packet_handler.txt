@@ -106,3 +106,20 @@ npc requesting string input
 
 "player_warp"
 
+"trade_request"              (string) name
+incoming trade request
+
+"trade_response"             (string) result
+    result = "ok", "far_away", "not_exist", "cancel", "fail"
+
+"trade_update"
+
+"trade_add_response"         (string) result
+    result = "ok", "overweighted", "no_slot", "fail"
+
+"trade_confirm"              (int) side
+    side = 0 means ok from myself, 1 means ok from other
+
+"trade_cancel"
+
+"trade_complete"

@@ -26,3 +26,9 @@ stores dropped items. indexes are being ids
 
 (table) skills
 contains character skills
+
+(table) trade_buy
+indexes are item ids. may contain trade_buy.money
+
+(table) trade_sell
+indexes are cell numbers. may contain trade_buy.money
