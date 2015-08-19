@@ -232,6 +232,63 @@ public class bot {
                             net.writeInt32(npcId);
                             net.writeString(value.length() + 1, value);
                         } break;
+                        case "attack": {
+                            int id = args.arg(2).toint();
+                            net.writeInt16(0x0089); // CMSG_PLAYER_ATTACK
+                            net.writeInt32(id);
+                            net.writeInt8(0);
+                        } break;
+                        case "emote": {
+                            int emoteId = args.arg(2).toint();
+                            net.writeInt16(0x00BF); // CMSG_PLAYER_EMOTE
+                            net.writeInt8(emoteId);
+                        } break;
+                        case "increase_attribute": {
+                            String attr_name = args.arg(2).toString();
+                            int attr = -1;
+                            switch(attr_name) {
+                                case "str": attr = 0; break;
+                                case "agi": attr = 1; break;
+                                case "vit": attr = 2; break;
+                                case "int": attr = 3; break;
+                                case "dex": attr = 4; break;
+                                case "luk": attr = 5; break;
+                            }
+                            if(attr == -1) break;
+                            net.writeInt16(0x00BB); // CMSG_STAT_UPDATE_REQUEST
+                            net.writeInt16(attr);
+                            net.writeInt8(1);
+                        } break;
+                        case "increase_skill": {
+                            int skillId = args.arg(2).toint();
+                            net.writeInt16(0x0112); // CMSG_SKILL_LEVELUP_REQUEST
+                            net.writeInt16(skillId);
+                        } break;
+                        case "pickup": {
+                            int id = args.arg(2).toint();
+                            net.writeInt16(0x009F); // CMSG_ITEM_PICKUP
+                            net.writeInt32(id);
+                        } break;
+                        case "turn": {
+                            int dir = args.arg(2).toint();
+                            net.writeInt16(0x009B); // CMSG_PLAYER_CHANGE_DIR
+                            net.writeInt16(0);
+                            net.writeInt8(dir);
+                        } break;
+                        case "action": {
+                            String act = args.arg(2).toString();
+                            int type;
+                            if(act.equals("sit")) type = 2;
+                            else if(act.equals("stand")) type = 3;
+                            else break;
+                            net.writeInt16(0x0089); // CMSG_PLAYER_CHANGE_ACT
+                            net.writeInt32(0);
+                            net.writeInt8(type);
+                        } break;
+                        case "respawn": {
+                            net.writeInt16(0x00B2); // CMSG_PLAYER_RESTART
+                            net.writeInt8(0);
+                        } break;
                     }
                 } catch(IOException e) {
                     e.printStackTrace();
@@ -248,11 +305,6 @@ public class bot {
             public void run() {
                 try {
                     while(!quit) {
-                        if(mapLoaded) {
-                            net.writeInt16(0x007D); // CMSG_MAP_LOADED
-                            mapLoaded = false;
-                        }
-
                         int packet = net.readPacket();
 //                        System.out.append("recv packet = ");
 //                        Utils.printHexInt16(packet);
@@ -1084,6 +1136,158 @@ public class bot {
                                 int npcId = net.readInt32();
                                 packetHandler.call(valueOf("npc_str_input"), valueOf(npcId));
                             } break;
+                            case 0x0087: { // SMSG_WALK_RESPONSE
+                                net.skipPacket();
+                            } break;
+                            case 0x0091: { // SMSG_PLAYER_WARP
+                                String dstMap = net.readString(16);
+                                int x = net.readInt16();
+                                int y = net.readInt16();
+                                if(!dstMap.equals(mapName)) mapLoaded = true;
+                                mapName = dstMap;
+                                globals.set("map_name", mapName);
+                                character.set("x", x);
+                                character.set("y", y);
+                                packetHandler.call(valueOf("player_warp"));
+                            } break;
+                            case 0x00B0: { // SMSG_PLAYER_STAT_UPDATE_1
+                                int type = net.readInt16();
+                                int value = net.readInt32();
+                                switch(type) {
+                                    case 0x0000: character.set("speed", value); break;
+                                    case 0x0004: break; // manner
+                                    case 0x0005: character.set("hp", value); break;
+                                    case 0x0006: character.set("max_hp", value); break;
+                                    case 0x0007: character.set("mp" value); break;
+                                    case 0x0008: character.set("max_mp", value); break;
+                                    case 0x0009: character.set("char_points" value); break;
+                                    case 0x000B: character.set("level" value); break;
+                                    case 0x000C: character.set("skill_points", value); break;
+                                    case 0x0018: character.set("total_weight", value); break;
+                                    case 0x0019: character.set("max_weight", value); break;
+                                    case 0x0029: character.set("attack_base", value); break;
+                                    case 0x002A: character.set("attack_mod", value); break;
+                                    case 0x002B: character.set("mattack_base", value); break;
+                                    case 0x002C: character.set("mattack_mod", value); break;
+                                    case 0x002D: character.set("defence_base", value); break;
+                                    case 0x002E: character.set("defence_mod", value); break;
+                                    case 0x002F: character.set("mdefence_base", value); break;
+                                    case 0x0030: character.set("mdefence_mod", value); break;
+                                    case 0x0031: character.set("hit", value); break;
+                                    case 0x0032: character.set("flee_base", value); break;
+                                    case 0x0033: character.set("flee_mod", value); break;
+                                    case 0x0034: character.set("critical", value); break;
+                                    case 0x0035: character.set("attack_speed", value); break;
+                                    case 0x0037: character.set("job_base", value); break;
+                                    case 500: character.set("gm_level", value); break;
+                                }
+                                packetHandler.call(valueOf("char_update"));
+                            } break;
+                            case 0x00B1: { // SMSG_PLAYER_STAT_UPDATE_2
+                                int type = net.readInt16();
+                                int value = net.readInt32();
+                                switch(net.readInt16()) {
+                                    case 0x0001: character.set("exp", value); break;
+                                    case 0x0002: character.set("job_exp", value); break;
+                                    case 0x0014: character.set("money", value); break;
+                                    case 0x0016: character.set("exp_needed", value); break;
+                                    case 0x0017: character.set("job_mod", value); break;
+                                }
+                                packetHandler.call(valueOf("char_update"));
+                            } break;
+                            case 0x0141: { // SMSG_PLAYER_STAT_UPDATE_3
+                                int type = net.readInt32();
+                                int base = net.readInt32();
+                                int bonus = net.readInt32();
+                                switch(type) {
+                                    case 0:
+                                        character.set("st_str", base);
+                                        character.set("st_str_mod", bonus);
+                                    break;
+                                    case 1:
+                                        character.set("st_agi", base);
+                                        character.set("st_agi_mod", bonus);
+                                    break;
+                                    case 2:
+                                        character.set("st_vit", base);
+                                        character.set("st_vit_mod", bonus);
+                                    break;
+                                    case 3:
+                                        character.set("st_int", base);
+                                        character.set("st_int_mod", bonus);
+                                    break;
+                                    case 4:
+                                        character.set("st_dex", base);
+                                        character.set("st_dex_mod", bonus);
+                                    break;
+                                    case 5:
+                                        character.set("st_luk", base);
+                                        character.set("st_luk_mod", bonus);
+                                    break;
+                                }
+                                packetHandler.call(valueOf("char_update"));
+                            } break;
+                            case 0x00BC: { // SMSG_PLAYER_STAT_UPDATE_4
+                                int type = net.readInt16();
+                                int ok = net.readInt8();
+                                int value = net.readInt8();
+                                if(ok == 1) {
+                                    switch(type) {
+                                        case 0: character.set("st_str", value); break;
+                                        case 1: character.set("st_agi", value); break;
+                                        case 2: character.set("st_vit", value); break;
+                                        case 3: character.set("st_int", value); break;
+                                        case 4: character.set("st_dex", value); break;
+                                        case 5: character.set("st_luk", value); break;
+                                    }
+                                }
+                                packetHandler.call(valueOf("char_update"));
+                            } break;
+                            case 0x00BD: { // SMSG_PLAYER_STAT_UPDATE_5
+                                character.set("char_points", net.readInt16());
+                                character.set("st_str", net.readInt8());
+                                character.set("st_str_need", net.readInt8());
+                                character.set("st_agi", net.readInt8());
+                                character.set("st_agi_need", net.readInt8());
+                                character.set("st_vit", net.readInt8());
+                                character.set("st_vit_need", net.readInt8());
+                                character.set("st_int", net.readInt8());
+                                character.set("st_int_need", net.readInt8());
+                                character.set("st_dex", net.readInt8());
+                                character.set("st_dex_need", net.readInt8());
+                                character.set("st_luk", net.readInt8());
+                                character.set("st_luk_need", net.readInt8());
+                                character.set("attack_base", net.readInt16());
+                                character.set("attack_mod", net.readInt16());
+                                character.set("mattack_base", net.readInt16());
+                                character.set("mattack_mod", net.readInt16());
+                                character.set("defence_base", net.readInt16());
+                                character.set("defence_mod", net.readInt16());
+                                character.set("mdefence_base", net.readInt16());
+                                character.set("mdefence_mod", net.readInt16());
+                                character.set("hit", net.readInt16());
+                                character.set("flee_base", net.readInt16());
+                                character.set("flee_mod", net.readInt16());
+                                character.set("critical", net.readInt16());
+                                net.skip(2); // manner
+                                packetHandler.call(valueOf("char_update"));
+                            } break;
+                            case 0x00BE: { // SMSG_PLAYER_STAT_UPDATE_6
+                                int type = net.readInt16();
+                                int value = net.readInt8();
+                                switch(type) {
+                                    case 0x0020: character.set("st_str_need", value); break;
+                                    case 0x0021: character.set("st_agi_need", value); break;
+                                    case 0x0022: character.set("st_vit_need", value); break;
+                                    case 0x0023: character.set("st_int_need", value); break;
+                                    case 0x0024: character.set("st_dex_need", value); break;
+                                    case 0x0025: character.set("st_luk_need", value); break;
+                                }
+                                packetHandler.call(valueOf("char_update"));
+                            } break;
+                            case 0x013B: { // SMSG_PLAYER_ARROW_MESSAGE
+                                int type = net.readInt16();
+                            } break;
                             default:
                                 net.skipPacket();
                         }
@@ -1102,6 +1306,11 @@ public class bot {
         reader.start();
 
         while(!quit) {
+            if(mapLoaded) {
+                net.writeInt16(0x007D); // CMSG_MAP_LOADED
+                mapLoaded = false;
+            }
+
             LuaValue ret = loopBody.call();
             if(ret == FALSE) {
                 quit = true;

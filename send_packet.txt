@@ -58,3 +58,23 @@ send integer to npc
 
 "npc_str_input"              (int) npcId         (string) value
 send string to npc
+
+"attack"                     (int) beingId
+
+"emote"                      (int) emoteId
+
+"increase_attribute"         (string) attr_name
+    attr_name = "str", "agi", "vit", "int", "dex", "luk"
+
+"increase_skill"             (int) skillId
+
+"pickup"                     (int) id
+id is index for `items`
+
+"turn"                       (int) dir
+
+"action"                     (string) act_name
+    act_name = "sit", "stand"
+
+"respawn"
+

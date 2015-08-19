@@ -103,3 +103,6 @@ npc requesting integer input
 
 "npc_str_input"              (int) npcId
 npc requesting string input
+
+"player_warp"
+
