@@ -1039,7 +1039,7 @@ public class bot {
                                 item.set("y", net.readInt16());
                                 net.skip(4); // amount,subX,subY / subX,subY,amount
                                 items.set(id, item);
-                                packetHandler.call(valueOf("item_update"));
+                                packetHandler.call(valueOf("item_update"), valueOf(id));
                             } break;
                             case 0x00A1: { // SMSG_ITEM_REMOVE
                                 int id = net.readInt32();
