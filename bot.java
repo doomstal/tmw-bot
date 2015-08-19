@@ -25,6 +25,7 @@ public class bot {
     public LuaTable beings = new LuaTable();
     public LuaTable buy_sell = new LuaTable();
     public LuaTable items = new LuaTable();
+    public Globals globals;
 
     public LuaValue script;
     public LuaValue loopBody;
@@ -83,7 +84,7 @@ public class bot {
     public bot() throws Exception {
         net.connect(this);
 
-        Globals globals = JsePlatform.standardGlobals();
+        globals = JsePlatform.standardGlobals();
 
         globals.set("character", character);
         globals.set("inventory", inventory);
