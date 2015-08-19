@@ -1,0 +1,25 @@
+global variable for use in lua. updated automatically
+
+(table) character
+stores available information about player character. updated over time
+
+(table) inventory
+indexes are cell numbers. stores unequipped and other items
+
+(table) equipment
+indexes are cell numbers. stores equipped items
+
+(table) storage
+indexes are cell numbers. for player storage
+
+(string) map_name
+current map's name
+
+(table) beings
+stores information about beings in sight. indexes are being ids
+
+(table) buy_sell
+stores merchant npc's buy or sell list
+
+(table) items
+stores dropped items. indexes are being ids

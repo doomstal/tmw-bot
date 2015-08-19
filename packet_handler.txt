@@ -1,0 +1,105 @@
+location : bot.lua
+called when new packet arrives
+first argument is packet name/type
+
+"being_update"               (int) id
+being itself will be stored in global `beings` table, indexed with id.
+
+"being_name"                 (int) id
+requested for players and npcs
+
+"being_remove"               (int) id
+being died, disappeared or out of view
+
+"being_attack"               (int) srcId         (int) dstId         (int) damage
+pure damage to hp
+
+"being_action"               (int) srcId         (int) dstId         (string) type       (int) param
+    type = "hit", "critical", "multi", "flee", "sit", "stand"
+
+"being_selfeffect"           (int) id            (int) effect
+(not sure what effect value actually represent)
+
+"being_emote"                (int) id            (int) emote
+
+"being_change_looks"         (int) dstId         (string) type
+    type = "hair_type", "eq_weapon+eq_shield", "eq_legs", "eq_head", "eq_torso", "hair_color", "eq_shield", "eq_shoes", "eq_gloves", "eq_cape", "eq_misc1", "eq_misc2"
+
+"being_guild_info"           (int) id
+
+"player_update"              (int) id
+
+"player_stop"                (int) id            (int) x             (int) y
+informs that player should stop at x,y. can be ignored
+
+"whisper_response"           (string) type
+    type = "success", "offline", "ignored"
+for outcoming whisper
+
+"whisper"                    (string) nick       (string) message
+incoming whisper
+
+"being_chat"                 (int) id            (string) message
+
+"player_chat"                (bool) b_isgm       (string) message
+global chat
+
+"inventory_update"
+stored in `inventory`. indexes are inventory cell numbers.
+
+"storage_update"
+stored in `storage`. indexes are inventory cell numbers.
+
+"item_use_response"          (bool) b_success
+
+"storage_status"
+
+"storage_close"
+(client should close storage dialog)
+
+"equip"                      (bool) b_success    (int) index
+server response for equip request. item will be moved from `inventory` to `equipment`.
+
+"unequip"                    (bool) b_success    (int) index
+server response for unequip request. item will be moved from `equipment` to `inventory`.
+
+"char_update"
+player character
+
+"buy_sell_choise"            (int) npcId
+probably received when trying to talk to merchant npc
+
+"buy_items"
+updates `buy_sell` table
+
+"sell_items"
+updates `buy_sell` table
+
+"buy_response"               (bool) b_success
+doesn't actually update inventory
+
+"sell_response"              (bool) b_success
+doesn't actually update inventory
+
+"item_update"                (int) id
+item either dropped or become visible
+
+"item_remove"                (int) id
+item disappeared / out of sight
+
+"npc_choise"                 (int) npcId         (table) choises
+npc menu
+
+"npc_message"                (string) message
+
+"npc_close"                  (int) npcId
+informs that close action is avialable (shows "close" button in client)
+
+"npc_next"                   (int) npcId
+informs that next action is avialable (shows "next" button in client)
+
+"npc_int_input"              (int) npcId
+npc requesting integer input
+
+"npc_str_input"              (int) npcId
+npc requesting string input

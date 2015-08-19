@@ -1,0 +1,60 @@
+location : bot.java
+call this from lua code to send packet
+first argument is packet name/type
+
+"walk"                       (int) x             (int) y             (int) dir
+player character will go to x,y.
+
+"talk"                       (string) message
+speak in global chat
+
+"whisper"                    (string) nick       (string) message
+send whisper
+
+"storage_close"
+request storage close
+
+"equip"                      (int) index
+request equip item in inventory[index]
+
+"unequip"                    (int) index
+request unequip item in equipment[index]
+
+"use"                        (int) index
+use item in inventory[index]
+
+"drop"                       (int) index         (int) amount
+drop item in inventory[index]
+
+"to_storage"                 (int) index         (int) amount
+request move inventory[index] to storage
+
+"from_storage"               (int) index         (int) amount
+request move storage[index] to inventory
+
+"npc_talk"                   (int) npcId
+interact with npc
+
+"npc_buy_sell"               (int) npcId         (bool) b_sell
+click "buy" or "sell" button. for merchant npcs. b_sell=true to sell.
+
+"npc_buy_item"               (int) npcId         (int) itemId        (int) amount
+request buy
+
+"npc_sell_item"              (int) npcId         (int) itemId        (int) amount
+request sell
+
+"npc_next"                   (int) npcId
+click "next" button
+
+"npc_close"                  (int) npcId
+click "close" button
+
+"npc_choise"                 (int) npcId         (int) index
+"choose" menu item
+
+"npc_int_input"              (int) npcId         (int) value
+send integer to npc
+
+"npc_str_input"              (int) npcId         (string) value
+send string to npc
