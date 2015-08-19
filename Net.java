@@ -1,3 +1,6 @@
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.IOException;
@@ -216,10 +219,15 @@ public class Net {
         }
         checkPacketLength();
 
+        File file = new File("config.txt");
+        BufferedReader br = new BufferedReader(new FileReader(file));
+        String username = br.readLine();
+        String password = br.readLine();
+
         writeInt16(0x0064); // login request
         writeInt32(0);
-        writeString(24, "chibot");
-        writeString(24, "m1ghtyb0t");
+        writeString(24, username);
+        writeString(24, password);
         writeInt8(2);
 
         readPacket();
