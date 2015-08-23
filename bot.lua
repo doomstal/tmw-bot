@@ -1,6 +1,36 @@
+require("task")
+
+task_list = {}
+
+function task_list:add(obj)
+    self[#self + 1] = obj
+end
+function task_list:remove_last()
+    self[#self] = nil
+end
+function task_list:remove(obj)
+    local i = nil
+    for k,v in ipairs(self) do
+        if v == obj then
+            i = k
+            break;
+        end
+    end
+    if i then
+        self[i] = self[#self]
+        self[#self] = nil
+    end
+end
+
+function run_task(task, ...)
+    local new = setmetatable({}, { __index = task })
+    if new.init then new:init(...) end
+    task_list:add(new)
+end
+
 function packet_handler(...)
     local args = table.pack(...)
-    local p = "";
+    local p = "packet_handler ";
     for _,v in ipairs(args) do
         if type(v) == "boolean" then
             if v then v = "[true]" else v = "[false]" end
@@ -10,79 +40,17 @@ function packet_handler(...)
         p = p .. v .. " ";
     end
     print(p)
-    if args[1] == "being_name" and beings[ args[2] ].name == "doomstal" then
-        leader = beings[args[2]]
-        print("leader found! ", args[2])
-        --send_packet("talk", "hello!")
-    end
-    if args[1] == "whisper" then
-        local nick = args[2]
-        local msg = args[3]
-        if nick == "doomstal" then
-            do_command(msg)
-        elseif nick ~= "Server" then
-            send_packet("whisper", nick, "hello, i am bot being developed by doomstal")
-        end
-    end
 
---[[
-    if args[1] == "being_name" and beings[ args[2] ].name == "Ferry Schedule" then
-        send_packet("npc_talk", args[2])
-    end
-    if args[1] == "npc_choise" then
-        npcId = args[2]
-        npcMenu = args[3]
-        for k,v in pairs(npcMenu) do
-            print(k .. "." ..  v)
-        end
-        send_packet("npc_choise", npcId, 2);
-    end
-    if args[1] == "npc_close" then
-        npcId = args[2]
-        send_packet("npc_close", npcId);
-    end
-]]
+    local task = task_list[#task_list]
+    if task.packet_handler then task:packet_handler(args) end
 end
 
---tick = 0
-
 function loop_body()
---    tick = tick + 1
+    local task = task_list[#task_list]
+    if task.tick then task:tick() end
+    if task.finished then task_list:remove_last() end
+
     return true
 end
 
-function do_command(cmd)
-    print("cmd>"..cmd)
-    if cmd == "walk" then
-        if leader then
-            send_packet("walk", leader.x, leader.y)
-        end
-    end
-    if cmd == "equipment" then
-        for i, item in pairs(equipment) do
-            local str = "[" .. i .. "] equip "
-            for k,v in pairs(item) do
-                str = str .. k .. "=" .. v .. " "
-            end
-            print(str)
-        end
-    end
-    if cmd == "inventory" then
-        for i, item in pairs(inventory) do
-            local str = "[" .. i .. "] equip "
-            for k,v in pairs(item) do
-                str = str .. k .. "=" .. v .. " "
-            end
-            print(str)
-        end
-    end
-    if cmd == "storage" then
-        for i, item in pairs(storage) do
-            local str = "[" .. i .. "] equip "
-            for k,v in pairs(item) do
-                str = str .. k .. "=" .. v .. " "
-            end
-            print(str)
-        end
-    end
-end
+run_task(task.follow_leader)

@@ -1,4 +1,5 @@
 import java.io.IOException;
+import java.util.concurrent.Semaphore;
 
 import org.luaj.vm2.Globals;
 import org.luaj.vm2.LuaValue;
@@ -44,6 +45,9 @@ public class bot {
     boolean quit = false;
 
     Net net = new Net();
+    Semaphore writeLock = new Semaphore(1, true);
+
+    Map map = new Map();
 
     public LuaValue createBeing(int id, int job) throws IOException {
         LuaTable being = new LuaTable();
@@ -63,8 +67,16 @@ public class bot {
         beings.set(id, being);
 
         if(type.equals("player") || type.equals("npc")) {
+            try {
+            writeLock.acquire();
+
             net.writeInt16(0x0094); // being name request
             net.writeInt32(id);
+
+            } catch(InterruptedException e) {
+                e.printStackTrace();
+            }
+            writeLock.release();
         }
 
         return being;
@@ -87,6 +99,7 @@ public class bot {
 
     public bot() throws Exception {
         net.connect(this);
+        map.load_map(mapName);
 
         globals = JsePlatform.standardGlobals();
 
@@ -110,6 +123,9 @@ public class bot {
         LuaValue sendPacket = new VarArgFunction() {
             @Override
             public Varargs invoke(Varargs args) {
+                try {
+                writeLock.acquire();
+
                 try {
                     String pak = args.arg(1).toString();
                     switch(pak) {
@@ -333,6 +349,12 @@ public class bot {
                     e.printStackTrace();
                     System.exit(1);
                 }
+
+                } catch(InterruptedException e) {
+                    e.printStackTrace();
+                }
+                writeLock.release();
+
                 return NIL;
             }
         };
@@ -790,7 +812,8 @@ public class bot {
                                 );
                             } break;
                             case 0x008D: { // SMSG_BEING_CHAT
-                                int id = net.readInt16();
+                                int id = net.readInt32();
+                                System.out.println(id);
                                 int msglen = net.getPacketLength() - 8;
                                 if(beings.get(id) == NIL || msglen <= 0) {
                                     net.skipPacket();
@@ -1182,7 +1205,10 @@ public class bot {
                                 String dstMap = net.readString(16);
                                 int x = net.readInt16();
                                 int y = net.readInt16();
-                                if(!dstMap.equals(mapName)) mapLoaded = true;
+                                if(!dstMap.equals(mapName)) {
+                                    map.load_map(mapName);
+                                    mapLoaded = true;
+                                }
                                 mapName = dstMap;
                                 globals.set("map_name", mapName);
                                 character.set("x", x);
@@ -1453,11 +1479,21 @@ public class bot {
         });
         reader.start();
 
+//        int new_time = System.nanoTime() / 1000000;
+//        int old_time = 0;
+
         while(!quit) {
             if(mapLoaded) {
+                writeLock.acquire();
+
                 net.writeInt16(0x007D); // CMSG_MAP_LOADED
+
+                writeLock.release();
                 mapLoaded = false;
             }
+
+//            old_time = new_time;
+//            int new_time = System.nanoTime();
 
             LuaValue ret = loopBody.call();
             if(ret == FALSE) {

@@ -58,6 +58,9 @@ public class Net {
         length = -2;
         packet_bytes = 0;
         packet = readInt16();
+        System.out.append("readpacket ");
+        Utils.printHexInt16(packet);
+        System.out.println();
         length = getPacketLength();
         if(length == -1) {
             length = readInt16();
