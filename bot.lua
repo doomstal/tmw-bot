@@ -22,10 +22,25 @@ function task_list:remove(obj)
     end
 end
 
-function run_task(task, ...)
+task_stack = {}
+task_stack.add = task_list.add
+task_stack.remove_last = task_list.remove_last
+task_stack.remove = task_list.remove
+function task_stack:last()
+    if #self == 0 then return nil end
+    return self[#self]
+end
+
+function run_task_parallel(task, ...)
     local new = setmetatable({}, { __index = task })
     if new.init then new:init(...) end
     task_list:add(new)
+end
+
+function run_task(task, ...)
+    local new = setmetatable({}, { __index = task })
+    if new.init then new:init(...) end
+    task_stack:add(new)
 end
 
 function packet_handler(...)
@@ -41,16 +56,28 @@ function packet_handler(...)
     end
     print(p)
 
-    local task = task_list[#task_list]
+    for _, task in ipairs(task_list) do
+        if task.packet_handler then task:packet_handler(args) end
+    end
+
+    local task = task_stack:last()
     if task.packet_handler then task:packet_handler(args) end
 end
 
 function loop_body()
-    local task = task_list[#task_list]
+    for _, task in ipairs(task_list) do
+        if task.tick then task:tick() end
+        if task.finished then task_list:remove(task) end
+    end
+
+    local task = task_stack:last()
     if task.tick then task:tick() end
-    if task.finished then task_list:remove_last() end
+    if task.finished then task_stack:remove_last() end
 
     return true
 end
+
+run_task_parallel(task.leader_commands)
+run_task_parallel(task.npc_listener)
 
 run_task(task.follow_leader)
