@@ -151,16 +151,22 @@ public class Map {
 
     LuaTable lua_position(int x, int y) {
         LuaTable t = new LuaTable();
-        t.set("x", x + 1);
-        t.set("y", y + 1);
+        t.set("x", x);
+        t.set("y", y);
         return t;
     }
 
+    public boolean is_accesible(int x1, int y1, int x2, int y2) {
+        if(x1<0 || x1>=width || y1<0 || y1>=height
+        || x2<0 || x2>=width || y2<0 || y2>=height) return false;
+        return map[y1][x1]!=0 && map[y2][x2]!=0 && map[y1][x1]==map[y2][x2];
+    }
+
     LuaValue find_path(int lx1, int ly1, int lx2, int ly2) {
-        this.x1 = lx1-1;
-        this.y1 = ly1-1;
-        this.x2 = lx2-1;
-        this.y2 = ly2-1;
+        this.x1 = lx1;
+        this.y1 = ly1;
+        this.x2 = lx2;
+        this.y2 = ly2;
 
         if(map[y1][x1]==0 || map[y2][x2]==0 || map[y1][x1] != map[y2][x2]) return NIL;
 
