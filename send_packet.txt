@@ -2,6 +2,9 @@ location : bot.java
 call this from lua code to send packet
 first argument is packet name/type
 
+"reload"
+not a packet actually, reloads bot.lua
+
 "walk"                       (int) x             (int) y             (int) dir
 player character will go to x,y.
 

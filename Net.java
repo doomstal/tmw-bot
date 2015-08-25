@@ -380,7 +380,7 @@ public class Net {
         skip(4);
 
         expectPacket(0x0073); // SMSG_MAP_LOGIN_SUCCESS
-        b.serverTime = readInt32() * 10;
+        skip(4);
         readCoordinates(b.character);
         skip(2);
         checkPacketLength();
