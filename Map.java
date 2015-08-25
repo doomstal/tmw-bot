@@ -19,27 +19,44 @@ public class Map {
     int path_cost;
     int path_length;
 
-    public Map() { }
+    public Map() {
+        for(int i=0; i!=maxWalkSize; ++i) {
+            walk[i] = new Position();
+        }
+    }
 
     void new_region(int x, int y, int region) {
         LinkedList<Integer> marked = new LinkedList<Integer>();
 
+        map[y][x] = region;
         marked.add(y*width + x);
         while(!marked.isEmpty()) {
             int xy = marked.remove();
             x = xy % width;
             y = xy / width;
-            map[y][x] = region;
-            if(map[y][x+1] == -1) marked.add(y*height + x+1);
-            if(map[y][x-1] == -1) marked.add(y*height + x-1);
-            if(map[y-1][x] == -1) marked.add((y-1)*height + x);
-            if(map[y+1][x] == -1) marked.add((y+1)*height + x);
+            if(x<=0 || x>=width-1 || y<=0 || y>=height-1) continue;
+            if(map[y][x+1] == -1) {
+                map[y][x+1] = region;
+                marked.add(y*width + x+1);
+            }
+            if(map[y][x-1] == -1) {
+                map[y][x-1] = region;
+                marked.add(y*width + x-1);
+            }
+            if(map[y-1][x] == -1) {
+                map[y-1][x] = region;
+                marked.add((y-1)*width + x);
+            }
+            if(map[y+1][x] == -1) {
+                map[y+1][x] = region;
+                marked.add((y+1)*width + x);
+            }
         }
     }
 
     public void load_map(String map_name) {
         try {
-            FileInputStream in = new FileInputStream(new File(map_name));
+            FileInputStream in = new FileInputStream(new File("server-data/world/map/data/" + map_name + ".wlk"));
             width = (in.read() + (in.read() << 8));
             height = (in.read() + (in.read() << 8));
             map = new int[height][width];
@@ -57,6 +74,8 @@ public class Map {
                     if(map[j][i] == -1) new_region(i, j, region++);
                 }
             }
+
+            System.out.println("map loaded "+map_name+" "+width+","+height);
         } catch(IOException e) {
             e.printStackTrace();
             System.exit(1);
@@ -80,7 +99,7 @@ public class Map {
         Position p = walk[walkFirst];
         ++walkFirst;
         if(walkFirst == maxWalkSize) walkFirst = 0;
-        return walk[walkFirst];
+        return p;
     }
     void walk_push(int x, int y, int cost, int length) {
         if(walkLast == walkFirst-1) throw new RuntimeException("walk array full!");
@@ -107,14 +126,33 @@ public class Map {
         Position() { }
     }
 
+    public void printMap(int i1, int j1, int i2, int j2) {
+        if(i1 < 0) i1 = 0;
+        if(i2 > width) i2 = width;
+        if(j1 < 0) j1 = 0;
+        if(j2 > height) j2 = height;
+        for(int j=j1; j!=j2; ++j) {
+            for(int i=i1; i!=i2; ++i) {
+                char c = '.';
+                if(costs[j][i] > -1) c = ',';
+                if(i==x1 && j==y1) c = 'A';
+                if(i==x2 && j==y2) c = 'B';
+                if(map[j][i] == 0) c = ' ';
+                System.out.append(c);
+            }
+            System.out.println();
+        }
+    }
+
     public boolean walkable(int x, int y, int dx, int dy) {
+        if(x+dx < 0 || x+dx >= width || y+dy < 0 || y+dy >= height) return false;
         return map[y+dy][x+dx]!=0 && map[y][x+dx]!=0 && map[y+dy][x]!=0;
     }
 
     LuaTable lua_position(int x, int y) {
         LuaTable t = new LuaTable();
-        t.set("x", x);
-        t.set("y", y);
+        t.set("x", x + 1);
+        t.set("y", y + 1);
         return t;
     }
 
@@ -153,7 +191,7 @@ public class Map {
         }
 
         walk_clear();
-        walk_push(x1, y1, 0, 0);
+        walk_push(x1, y1, 0, 1);
 
         while(!walk_empty()) {
             Position p = walk_pop();
@@ -165,9 +203,9 @@ public class Map {
                 if(path_cost == -1 || path_cost > p.cost) {
                     path_cost = p.cost;
                     path_length = p.length;
-                    continue;
                 }
-
+                continue;
+            } else {
                 if(walkable(p.x, p.y, 1, -1)) walk_push(p.x + 1, p.y - 1, p.cost + 14, p.length+1);
                 if(walkable(p.x, p.y, 1, 0)) walk_push(p.x + 1, p.y, p.cost + 10, p.length+1);
                 if(walkable(p.x, p.y, 1, 1)) walk_push(p.x + 1, p.y + 1, p.cost + 14, p.length+1);
@@ -180,7 +218,9 @@ public class Map {
         }
 
         if(path_cost == -1) {
-            System.out.println("path_cost == -1");
+            System.out.println("path_cost == -1  lx1="+lx1+" ly1="+ly1+" lx2="+lx2+" ly2="+ly2);
+            System.out.println("r1="+map[y1][x1]+" r2="+map[y2][x2]);
+            printMap(x1-5, y1-5, x2+5, y2+5);
             return NIL;
         }
 
@@ -190,6 +230,7 @@ public class Map {
         y = y2;
         while(i>0) {
             path.set(i--, lua_position(x, y));
+            if(x==x1 && y==y1) break;
             if(costs[y-1][x+1] == costs[y][x]-14) { ++x; --y; }
             else if(costs[y][x+1] == costs[y][x]-10) { ++x; }
             else if(costs[y+1][x+1] == costs[y][x]-14) { ++x; ++y; }
@@ -200,6 +241,7 @@ public class Map {
             else if(costs[y-1][x] == costs[y][x]-10) { --y; }
             else {
                 System.out.println("costs[y][x]");
+                printMap(x1-5, y1-5, x2+5, y2+5);
                 return NIL;
             }
         }

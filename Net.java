@@ -345,6 +345,8 @@ public class Net {
             b.character.set("st_luk", readInt8());
             skip(2);
 
+            b.beings.set(b.character.get("id"), b.character);
+
             System.out.println(b.character.get("name") + " (" + b.character.get("level") + " lvl)");
 
             if(charCount > 1) skip(106 * (charCount - 1));
@@ -378,7 +380,7 @@ public class Net {
         skip(4);
 
         expectPacket(0x0073); // SMSG_MAP_LOGIN_SUCCESS
-        skip(4); // server tick
+        b.serverTime = readInt32() * 10;
         readCoordinates(b.character);
         skip(2);
         checkPacketLength();

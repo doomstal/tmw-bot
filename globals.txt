@@ -32,3 +32,6 @@ indexes are item ids. may contain trade_buy.money
 
 (table) trade_sell
 indexes are cell numbers. may contain trade_buy.money
+
+(table) warps
+warps to other maps

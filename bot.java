@@ -1,5 +1,10 @@
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.concurrent.Semaphore;
+import java.util.Scanner;
+import java.util.regex.MatchResult;
+import java.util.regex.Pattern;
 
 import org.luaj.vm2.Globals;
 import org.luaj.vm2.LuaValue;
@@ -29,6 +34,8 @@ public class bot {
     public LuaTable skills = new LuaTable();
     public LuaTable trade_buy = new LuaTable();
     public LuaTable trade_sell = new LuaTable();
+    public LuaTable warps = new LuaTable();
+    public int serverTime;
 
     public Globals globals;
 
@@ -46,11 +53,13 @@ public class bot {
 
     Net net = new Net();
     Semaphore writeLock = new Semaphore(1, true);
+    Semaphore dataLock = new Semaphore(1, true);
 
     Map map = new Map();
 
     public LuaValue createBeing(int id, int job) throws IOException {
         LuaTable being = new LuaTable();
+        if(id == character.get("id").toint()) being = character;
         String type = null;
         being.set("job", job);
         if(job <=25 || (job >= 4001 && job <= 4049)) {
@@ -97,9 +106,68 @@ public class bot {
         return valueOf(type);
     }
 
+    public void being_update_path(LuaValue being) {
+        int x = being.get("x").toint();
+        int y = being.get("y").toint();
+        int dstx = being.get("dstx").toint();
+        int dsty = being.get("dsty").toint();
+        //System.out.println("being_update_path "+x+","+y+" -> "+dstx+","+dsty);
+        if(x!=dstx || y!=dsty) {
+            LuaValue path = being.get("path");
+            int path_index = being.get("path_index").toint();
+            if(path == NIL) {
+                being.set("path", map.find_path(x, y, dstx, dsty));
+                being.set("path_index", 1);
+                return;
+            }
+
+            int length = path.length();
+            if(path_index > length
+            || path.get(path_index).get("x").toint() !=x || path.get(path_index).get("y").toint() != y
+            || path.get(length).get("x").toint() != dstx || path.get(length).get("y").toint() != dsty) {
+                being.set("path", map.find_path(x, y, dstx, dsty));
+                being.set("path_index", 1);
+            }
+
+        } else {
+            being.set("path", NIL);
+        }
+    }
+
+    public void load_warps(String map_name) {
+        warps = new LuaTable();
+        globals.set("warps", warps);
+        try {
+            Scanner s = new Scanner(new FileInputStream(new File("server-data/world/map/npc/" + map_name + "/_warps.txt")));
+
+            int i=1;
+            while(s.hasNextLine()) {
+                String line = s.nextLine();
+                if(line.length() > 0 && !line.startsWith("//")) {
+                    Scanner s2 = new Scanner(line);
+                    s2.useDelimiter(",|\\|");
+                    LuaTable warp = new LuaTable();
+                    warp.set("src_map", s2.next());
+                    warp.set("src_x", s2.nextInt());
+                    warp.set("src_y", s2.nextInt());
+                    s2.next();
+                    s2.next();
+                    s2.next();
+                    s2.next();
+                    warp.set("dst_map", s2.next());
+                    warp.set("dst_x", s2.nextInt());
+                    warp.set("dst_y", s2.nextInt());
+                    warps.set(i++, warp);
+                }
+            }
+        } catch(Exception e) {
+            e.printStackTrace();
+            System.exit(1);
+        }
+    }
+
     public bot() throws Exception {
         net.connect(this);
-        map.load_map(mapName);
 
         globals = JsePlatform.standardGlobals();
 
@@ -114,6 +182,13 @@ public class bot {
         globals.set("skills", skills);
         globals.set("trade_buy", trade_buy);
         globals.set("trade_sell", trade_sell);
+        globals.set("server_time", serverTime);
+        globals.set("warps", warps);
+
+        map.load_map(mapName);
+        load_warps(mapName);
+
+        beings.set(character.get("id"), character);
 
         script = globals.loadfile("bot.lua");
         script.call();
@@ -367,6 +442,7 @@ public class bot {
                 try {
                     while(!quit) {
                         int packet = net.readPacket();
+                        dataLock.acquire();
 //                        System.out.append("recv packet = ");
 //                        Utils.printHexInt16(packet);
 //                        System.out.println();
@@ -374,6 +450,7 @@ public class bot {
                             case 0x0078: // SMSG_BEING_VISIBLE
                             case 0x007B: { // SMSG_BEING_MOVE
                                 int id = net.readInt32();
+                                if(id == character.get("id").toint()) System.out.println("character being_move");
                                 int speed = net.readInt16();
                                 int stunMode = net.readInt16();
                                 int statusEffects = net.readInt16();
@@ -399,7 +476,8 @@ public class bot {
                                 being.set("eq_legs", net.readInt16()); //headbottom
 
                                 if(packet == 0x007B) {
-                                    net.skip(4); // server tick
+                                    serverTime = net.readInt32() * 10;
+                                    globals.set("server_time", serverTime);
                                 }
 
                                 being.set("eq_shield", net.readInt16());
@@ -419,10 +497,12 @@ public class bot {
                                     net.readCoordinates(being);
                                 }
                                 net.skip(5);
+                                being_update_path(being);
                                 packetHandler.call(valueOf("being_update"), valueOf(id));
                             } break;
                             case 0x0095: { // SMSG_BEING_NAME_RESPONSE (30)
                                 int id = net.readInt32();
+                                if(id == character.get("id").toint()) System.out.println("character being_name_response");
                                 LuaValue being = beings.get(id);
                                 if(being != NIL) {
                                     String name = net.readString(24);
@@ -434,20 +514,25 @@ public class bot {
                             } break;
                             case 0x007C: { // SMSG_BEING_SPAWN
                                 int id = net.readInt32();
+                                if(id == character.get("id").toint()) System.out.println("character being_spawn");
                                 net.skip(14);
                                 int job = net.readInt16();
                                 net.skip(14);
                                 LuaTable being = new LuaTable();
                                 net.readCoordinates(being);
+                                being_update_path(being);
                                 System.out.println("SMSG_BEING_SPAWN id="+id+" job="+job+" at "+being.get("x")+", "+being.get("y"));
                                 net.skipPacket();
                             } break;
                             case 0x0086: { // SMSG_BEING_MOVE_2
                                 int id = net.readInt32();
+                                if(id == character.get("id").toint()) System.out.println("character being_move_2");
                                 LuaValue being = beings.get(id);
                                 if(being != NIL) {
                                     net.readCoordinatePair(being);
-                                    net.skip(2); //server tick
+                                    serverTime = net.readInt32() * 10;
+                                    globals.set("server_time", serverTime);
+                                    being_update_path(being);
                                     packetHandler.call(valueOf("being_update"), valueOf(id));
                                 } else {
                                     net.skip(7);
@@ -456,6 +541,7 @@ public class bot {
                             } break;
                             case 0x0080: { // SMSG_BEING_REMOVE
                                 int id = net.readInt32();
+                                if(id == character.get("id").toint()) System.out.println("character being_remove");
                                 LuaValue being = beings.get(id);
                                 if(being != NIL) {
                                     if(net.readInt8() == 1) {
@@ -470,6 +556,7 @@ public class bot {
                             } break;
                             case 0x0148: { // SMSG_BEING_RESURRECT (8)
                                 int id = net.readInt32();
+                                if(id == character.get("id").toint()) System.out.println("character being_resurrect");
                                 LuaValue being = beings.get(id);
                                 if(being != NIL) {
                                     if(net.readInt8() == 1) {
@@ -487,7 +574,8 @@ public class bot {
                                 int dstId = net.readInt32();
                                 LuaValue srcBeing = beings.get(srcId);
                                 LuaValue dstBeing = beings.get(dstId);
-                                net.skip(4); // server tick
+                                serverTime = net.readInt32() * 10;
+                                globals.set("server_time", serverTime);
                                 int attackSpeed = net.readInt32();
                                 net.skip(4); // dst speed
                                 int dmg = net.readInt32();
@@ -508,10 +596,12 @@ public class bot {
                             } break;
                             case 0x008A: { // SMSG_BEING_ACTION (29)
                                 int srcId = net.readInt32();
+                                if(srcId == character.get("id").toint()) System.out.println("character being_action src");
                                 int dstId = net.readInt32();
                                 LuaValue srcBeing = beings.get(srcId);
                                 LuaValue dstBeing = beings.get(dstId);
-                                net.skip(4); // server tick
+                                serverTime = net.readInt32() * 10;
+                                globals.set("server_time", serverTime);
                                 net.skip(8); // src speed, dst speed
                                 int param1 = net.readInt16();
                                 net.skip(2); // param2
@@ -549,6 +639,7 @@ public class bot {
                             } break;
                             case 0x019B: { // SMSG_BEING_SELFEFFECT (10)
                                 int id = net.readInt32();
+                                if(id == character.get("id").toint()) System.out.println("character being_selfeffect");
                                 LuaValue being = beings.get(id);
                                 if(being == NIL) {
                                     net.skipPacket();
@@ -663,6 +754,7 @@ public class bot {
                             } break;
                             case 0x009C: { // SMSG_BEING_CHANGE_DIRECTION (9)
                                 int id = net.readInt32();
+                                if(id == character.get("id").toint()) System.out.println("character being_change_direction");
                                 LuaValue being = beings.get(id);
                                 if(being == NIL) {
                                     net.skipPacket();
@@ -679,6 +771,7 @@ public class bot {
                             case 0x01D9: // SMSG_PLAYER_UPDATE_2 (53)
                             case 0x01DA: { // SMSG_PLAYER_MOVE (60)
                                 int id = net.readInt32();
+                                if(id == character.get("id").toint()) System.out.println("character player_move");
                                 int speed = net.readInt16();
                                 int stunMode = net.readInt16();
                                 int statusEffects = net.readInt16();
@@ -700,7 +793,8 @@ public class bot {
                                 being.set("eq_legs", net.readInt16());
 
                                 if(packet == 0x01DA) {
-                                    net.skip(4); // server tick
+                                    serverTime = net.readInt32() * 10;
+                                    globals.set("server_time", serverTime);
                                 }
 
                                 being.set("eq_head", net.readInt16());
@@ -731,6 +825,7 @@ public class bot {
                                     net.skip(1);
                                 }
                                 net.skip(2);
+                                being_update_path(being);
                                 packetHandler.call(
                                     valueOf("player_update"),
                                     valueOf(id)
@@ -1147,7 +1242,7 @@ public class bot {
                                 int id = net.readInt32();
                                 LuaTable item = new LuaTable();
                                 item.set("id", id);
-                                item.set("item_id", net.readInt32());
+                                item.set("item_id", net.readInt16());
                                 net.skip(1); // identified
                                 item.set("x", net.readInt16());
                                 item.set("y", net.readInt16());
@@ -1199,20 +1294,30 @@ public class bot {
                                 packetHandler.call(valueOf("npc_str_input"), valueOf(npcId));
                             } break;
                             case 0x0087: { // SMSG_WALK_RESPONSE
-                                net.skipPacket();
+                                serverTime = net.readInt32() * 10;
+                                globals.set("server_time", serverTime);
+                                net.readCoordinatePair(character);
+                                being_update_path(character);
+                                System.out.println("smsg_walk_response " + net.readInt8());
+//                                net.skip(1);
                             } break;
                             case 0x0091: { // SMSG_PLAYER_WARP
                                 String dstMap = net.readString(16);
                                 int x = net.readInt16();
                                 int y = net.readInt16();
                                 if(!dstMap.equals(mapName)) {
-                                    map.load_map(mapName);
-                                    mapLoaded = true;
+                                    map.load_map(dstMap);
+                                    load_warps(dstMap);
                                 }
+                                mapLoaded = true;
                                 mapName = dstMap;
+                                System.out.println("map = "+mapName);
                                 globals.set("map_name", mapName);
                                 character.set("x", x);
                                 character.set("y", y);
+                                character.set("dstx", x);
+                                character.set("dsty", y);
+                                being_update_path(character);
                                 packetHandler.call(valueOf("player_warp"));
                             } break;
                             case 0x00B0: { // SMSG_PLAYER_STAT_UPDATE_1
@@ -1466,6 +1571,7 @@ public class bot {
                                 net.skipPacket();
                         }
                         net.checkPacketLength();
+                        dataLock.release();
 //                        System.out.append("done packet = ");
 //                        Utils.printHexInt16(packet);
 //                        System.out.println();
@@ -1479,10 +1585,12 @@ public class bot {
         });
         reader.start();
 
-//        int new_time = System.nanoTime() / 1000000;
-//        int old_time = 0;
+        int new_time = (int)(System.nanoTime() / 1000000);
+        int old_time = 0;
 
         while(!quit) {
+            dataLock.acquire();
+
             if(mapLoaded) {
                 writeLock.acquire();
 
@@ -1492,14 +1600,85 @@ public class bot {
                 mapLoaded = false;
             }
 
-//            old_time = new_time;
-//            int new_time = System.nanoTime();
+            old_time = new_time;
+            new_time = (int)(System.nanoTime() / 1000000);
+
+            serverTime += new_time - old_time;
+            globals.set("server_time", serverTime);
+
+            //System.out.println("tick "+(new_time-old_time));
+
+            LuaValue k = NIL;
+            while(true) {
+                Varargs n = beings.next(k);
+                if( (k = n.arg1()).isnil() )
+                    break;
+                LuaValue being = n.arg(2);
+                int x = being.get("x").toint();
+                int y = being.get("y").toint();
+                int dstx = being.get("dstx").toint();
+                int dsty = being.get("dsty").toint();
+                if(x!=dstx || y!=dsty) {
+                    LuaValue path = being.get("path");
+                    int path_index = being.get("path_index").toint();
+                    int walk_time = being.get("walk_time").toint();
+
+                    if(path == NIL) {
+                        path = map.find_path(x, y, dstx, dsty);
+                        path_index = 1;
+                    }
+                    if(path != NIL) {
+                        if(walk_time == 0) walk_time = serverTime + being.get("speed").toint();
+
+                        int length = path.length();
+                        while(walk_time < serverTime && path_index <= length) {
+                            walk_time = serverTime + being.get("speed").toint();
+                            LuaValue p = path.get(path_index);
+                            if(p.get("x").toint() != x || p.get("y").toint() != y) {
+                                System.out.println("path position mismatch!");
+                                System.out.println("id="+being.get("id"));
+                                if(being.get("name")!=NIL) System.out.println("name="+being.get("name"));
+                                System.out.println("x=" + x + " y=" + y);
+                                System.out.println("dstx="+dstx+" dsty="+dsty);
+                                System.out.println("path_index="+path_index);
+                                map.x1 = x;
+                                map.y1 = y;
+                                map.x2 = dstx;
+                                map.y2 = dsty;
+                                map.printMap(Math.min(x,dstx)-5, Math.min(y,dsty)-5, Math.max(x,dstx)+5, Math.max(y,dsty)+5);
+                                for(int i=1; i<=length; ++i) {
+                                    p = path.get(i);
+                                    System.out.println(p.get("x") + ", "+p.get("y"));
+                                }
+                                System.exit(1);
+                            }
+                            ++path_index;
+                            if(path_index > length) break;
+                            p = path.get(path_index);
+                            x = p.get("x").toint();
+                            y = p.get("y").toint();
+                        }
+                    }
+
+                    being.set("path", path);
+                    being.set("path_index", path_index);
+                    being.set("walk_time", walk_time);
+                    being.set("x", x);
+                    being.set("y", y);
+                } else {
+                    being.set("path", NIL);
+                }
+            }
 
             LuaValue ret = loopBody.call();
             if(ret == FALSE) {
                 quit = true;
                 break;
             }
+            dataLock.release();
+
+//            int sleep_t = 10 - (new_time - old_time);
+//            if(sleep_t > 0) Thread.sleep(sleep_t);
             Thread.sleep(10);
         }
 
