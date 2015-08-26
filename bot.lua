@@ -1,6 +1,14 @@
+state = "leader_wait"
+
 leader_name = "doomstal"
 leader_id = -1
 leader = nil
+
+inside_koga = false
+interacting_npc = nil
+
+trade_confirm_me = false
+trade_confirm_other = false
 
 koga_npcs = {}
 koga_npcs["Candor Koga"] = 1
@@ -33,8 +41,6 @@ state_stack = {
     end
 }
 
-state = "leader_wait"
-
 function loop_body()
     leader = beings[leader_id]
     if not leader then
@@ -42,13 +48,14 @@ function loop_body()
         if leader then leader_id = leader.id end
     end
 
+    if koga_maps[map_name] then inside_koga = true else inside_koga = false end
+
     if state == "leader_wait" then
         if leader then
             wait_time = nil
             state = "leader_follow"
             leader_x = leader.dstx
             leader_y = leader.dsty
-            print("*** following")
             return
         end
         if not wait_time then wait_time = client_time + 5000 end
@@ -57,7 +64,20 @@ function loop_body()
             character.action = "sit"
         end
     elseif state == "leader_follow" then
-        if not leader then -- leader could warp to other map or use ferry
+        if not leader and leader_x and leader_y and (character.x ~= leader_x or character.y ~= leader_y) then
+            walk(leader_x, leader_y) -- leader's last known position
+            return
+        elseif not leader then -- leader could warp to other map or use ferry
+            if inside_koga then
+                local koga = koga_maps[map_name]
+                if character.x==koga.exitx and math.abs(character.y-koga.exity)<3 then
+                    walk(koga.exitx-1, koga.exity)
+                end
+                state_stack:push("leader_wait")
+                state = "koga_disembarking"
+                return
+            end
+
             local warp, warp_dist = nearest_warp(leader_x, leader_y)
             if warp and warp_dist > 5 then warp = nil end
 
@@ -67,7 +87,6 @@ function loop_body()
             if not warp and not koga then
                 state = "leader_wait"
                 wait_time = nil
-                print("*** waiting")
                 return
             end
 
@@ -83,10 +102,15 @@ function loop_body()
 
             if target == warp then
                 walk(warp.src_x, warp.src_y)
+                state = "leader_wait"
+                wait_time = nil
                 return
             end
             if target == koga then
-                --send_packet("talk", koga.id)
+                state_stack:push("leader_wait")
+                state = "koga_boarding"
+                interacting_npc = koga.id
+                send_packet("npc_talk", koga.id)
                 return
             end
 
@@ -166,6 +190,18 @@ function loop_body()
                 end
             end
         end
+    elseif state == "koga_boarding" then
+        if inside_koga then
+            state = state_stack:pop()
+            interacting_npc = nil
+        end
+    elseif state == "koga_disembarking" then
+        if inside_koga then
+            local koga = koga_maps[map_name]
+            walk(koga.exitx, koga.exity)
+        else
+            state = state_stack:pop()
+        end
     end
     return true
 end
@@ -188,12 +224,36 @@ function packet_handler(...)
     elseif args[1] == "player_warp" then
         leader = nil
         wait_time = nil
-        state = "leader_wait"
-        print("*** waiting")
     elseif args[1] == "npc_choise" then
+        if state == "koga_boarding" and args[2] == interacting_npc then
+            send_packet("npc_choise", args[2], 1)
+            return
+        end
+        if state == "koga_disembarking" then
+            send_packet("npc_choise", args[2], 1)
+            return
+        end
         send_packet("npc_choise", args[2], #args[3]) -- last dialog variant usually ends conversation
     elseif args[1] == "npc_close" then
         send_packet("npc_close", args[2])
+    elseif args[1] == "trade_request" then
+        if args[2] == leader_name then
+            send_packet("trade_response", true)
+        else
+            send_packet("trade_response", false)
+        end
+        trade_confirm_me = false
+        trade_confirm_other = false
+    elseif args[1] == "trade_confirm" then
+        if args[2] == 0 then
+            trade_confirm_me = true
+        elseif args[2] == 1 then
+            trade_confirm_other = true
+            send_packet("trade_confirm")
+        end
+        if trade_confirm_me and trade_confirm_other then
+            send_packet("trade_finish")
+        end
     end
 end
 
@@ -257,7 +317,7 @@ function nearest_koga(x, y)
             if not x or not y then return being end
             local dist = math.sqrt((x-being.x)^2+(y-being.y)^2)
             if not ret or dist < ret_dist then
-                ret = warp
+                ret = being
                 ret_dist = dist
             end
         end
@@ -318,6 +378,16 @@ function leader_command(cmd)
                 v = v.."}"
             end
             print(k.." = "..v)
+        end
+    elseif cmd[1] == "wait" then
+        if state == "leader_follow" then
+            state = "leader_wait_passive"
+            send_packet("action", "sit")
+            send_packet("turn", 1)
+        end
+    elseif cmd[1] == "follow" then
+        if state == "leader_wait_passive" then
+            state = "leader_wait"
         end
     end
 end

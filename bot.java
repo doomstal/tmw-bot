@@ -1585,9 +1585,10 @@ public class bot {
                             case 0x00F0: { // SMSG_TRADE_COMPLETE
                                 trade_buy = new LuaTable();
                                 trade_sell = new LuaTable();
+                                String result = net.readInt8()==0 ? "ok" : "fail";
                                 globals.set("trade_buy", trade_buy);
                                 globals.set("trade_sell", trade_sell);
-                                packetHandler.call(valueOf("trade_complete"));
+                                packetHandler.call(valueOf("trade_complete"), valueOf("result"));
                             } break;
                             default:
                                 net.skipPacket();

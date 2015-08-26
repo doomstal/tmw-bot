@@ -122,4 +122,5 @@ incoming trade request
 
 "trade_cancel"
 
-"trade_complete"
+"trade_complete"             (string) result
+    result = "ok", "fail"
