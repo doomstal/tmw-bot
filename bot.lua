@@ -352,6 +352,11 @@ function leader_command(cmd)
             else
                 interacting_npc = cmd[3]
             end
+        elseif cmd[2] == "npc_choise" and interacting_npc then
+            if not cmd[4] then
+                cmd[4] = cmd[3]
+                cmd[3] = interacting_npc
+            end
         elseif cmd[2] == "npc_close" and interacting_npc then
             cmd[3] = interacting_npc
             interacting_npc = nil

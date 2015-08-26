@@ -298,7 +298,7 @@ public class bot {
                             net.writeString(msg.length(), msg);
                         } break;
                         case "storage_close": {
-                            net.writeInt16(0x00F8); // CMSG_CLOSE_STORAGE
+                            net.writeInt16(0x00F7); // CMSG_CLOSE_STORAGE
                         } break;
                         case "equip": {
                             int index = args.arg(2).toint();
@@ -321,6 +321,7 @@ public class bot {
                         case "drop": {
                             int index = args.arg(2).toint();
                             int amount = args.arg(3).toint();
+                            if(amount < 1) amount = 1;
                             net.writeInt16(0x00A2); // CMSG_PLAYER_INVENTORY_DROP
                             net.writeInt16(index);
                             net.writeInt16(amount);
@@ -328,6 +329,7 @@ public class bot {
                         case "to_storage": {
                             int index = args.arg(2).toint();
                             int amount = args.arg(3).toint();
+                            if(amount < 1) amount = 1;
                             net.writeInt16(0x00F3); // CMSG_MOVE_TO_STORAGE
                             net.writeInt16(index);
                             net.writeInt16(amount);
@@ -335,6 +337,7 @@ public class bot {
                         case "from_storage": {
                             int index = args.arg(2).toint();
                             int amount = args.arg(3).toint();
+                            if(amount < 1) amount = 1;
                             net.writeInt16(0x00F5); // CMSG_MOVE_FROM_STORAGE
                             net.writeInt16(index);
                             net.writeInt16(amount);
@@ -356,6 +359,7 @@ public class bot {
                             int npcId = args.arg(2).toint();
                             int itemId = args.arg(3).toint();
                             int amount = args.arg(4).toint();
+                            if(amount < 1) amount = 1;
                             net.writeInt16(0x00C8); // CMSG_NPC_BUY_REQUEST
                             net.writeInt16(8); // one item (length of packet)
                             net.writeInt16(amount);
@@ -365,6 +369,7 @@ public class bot {
                             int npcId = args.arg(2).toint();
                             int itemId = args.arg(3).toint();
                             int amount = args.arg(4).toint();
+                            if(amount < 1) amount = 1;
                             net.writeInt16(0x00C9); // CMSG_NPC_SELL_REQUEST
                             net.writeInt16(8);
                             net.writeInt16(itemId);
@@ -390,6 +395,7 @@ public class bot {
                         case "npc_int_input": {
                             int npcId = args.arg(2).toint();
                             int value = args.arg(3).toint();
+                            if(args.arg(3).isnil()) value = 0;
                             net.writeInt16(0x0143); // CMSG_NPC_INT_RESPONSE
                             net.writeInt32(npcId);
                             net.writeInt32(value);
@@ -397,6 +403,7 @@ public class bot {
                         case "npc_str_input": {
                             int npcId = args.arg(2).toint();
                             String value = args.arg(3).toString();
+                            if(args.arg(3).isnil()) value = "";
                             net.writeInt16(0x01D5); // CMSG_NPC_STR_RESPONSE
                             net.writeInt16(value.length() + 9);
                             net.writeInt32(npcId);
