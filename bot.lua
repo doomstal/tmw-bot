@@ -304,9 +304,10 @@ function find_being_name(name)
 end
 
 function nearest_warp(x, y)
+    if not warps[map_name] then return end
     local ret = nil
     local ret_dist = nil;
-    for _, warp in pairs(warps) do
+    for _, warp in pairs(warps[map_name]) do
         if not x or not y then return warp end
         local dist = math.sqrt((x-warp.src_x)^2+(y-warp.src_y)^2)
         if not ret or dist < ret_dist then

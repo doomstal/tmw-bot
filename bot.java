@@ -135,11 +135,27 @@ public class bot {
         }
     }
 
-    public void load_warps(String map_name) {
+    public void load_warps() {
         warps = new LuaTable();
         globals.set("warps", warps);
+            File[] files = new File("server-data/world/map/npc").listFiles();
+            for(File file: files) {
+                if(file.isDirectory()) {
+                    String name = file.getName();
+                    if(name.matches("\\d\\d\\d-\\d")) {
+                        warps.set(name, load_warps(name));
+                    }
+                }
+            }
+    }
+
+    public LuaValue load_warps(String map_name) {
         try {
-            Scanner s = new Scanner(new FileInputStream(new File("server-data/world/map/npc/" + map_name + "/_warps.txt")));
+            File file = new File("server-data/world/map/npc/" + map_name + "/_warps.txt");
+            if(!file.exists()) return NIL;
+
+            LuaTable map_warps = new LuaTable();
+            Scanner s = new Scanner(new FileInputStream(file));
 
             int i=1;
             while(s.hasNextLine()) {
@@ -158,13 +174,15 @@ public class bot {
                     warp.set("dst_map", s2.next());
                     warp.set("dst_x", s2.nextInt());
                     warp.set("dst_y", s2.nextInt());
-                    warps.set(i++, warp);
+                    map_warps.set(i++, warp);
                 }
             }
+            return map_warps;
         } catch(Exception e) {
             e.printStackTrace();
             System.exit(1);
         }
+        return NIL;
     }
 
     public void fill_itemDB() {
@@ -215,6 +233,7 @@ public class bot {
         globals = JsePlatform.standardGlobals();
 
         fill_itemDB();
+        load_warps();
 
         net.connect(this);
 
@@ -234,7 +253,6 @@ public class bot {
         globals.set("itemDB", itemDB);
 
         map.load_map(mapName);
-        load_warps(mapName);
 
         beings.set(character.get("id"), character);
 
@@ -1409,7 +1427,6 @@ public class bot {
                                 int y = net.readInt16();
                                 if(!dstMap.equals(mapName)) {
                                     map.load_map(dstMap);
-                                    load_warps(dstMap);
                                 }
                                 mapLoaded = true;
                                 mapName = dstMap;

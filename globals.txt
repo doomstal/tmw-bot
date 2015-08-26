@@ -34,4 +34,4 @@ indexes are item ids. may contain trade_buy.money
 indexes are cell numbers. may contain trade_buy.money
 
 (table) warps
-warps to other maps
+indexes are map names. subtables contain warps to other maps
