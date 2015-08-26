@@ -14,9 +14,6 @@ speak in global chat
 "whisper"                    (string) nick       (string) message
 send whisper
 
-"storage_close"
-request storage close
-
 "equip"                      (int) index
 request equip item in inventory[index]
 
@@ -28,6 +25,9 @@ use item in inventory[index]
 
 "drop"                       (int) index         (int) amount
 drop item in inventory[index]
+
+"storage_close"
+request storage close
 
 "to_storage"                 (int) index         (int) amount
 request move inventory[index] to storage

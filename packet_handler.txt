@@ -50,8 +50,6 @@ stored in `inventory`. indexes are inventory cell numbers.
 "storage_update"
 stored in `storage`. indexes are inventory cell numbers.
 
-"item_use_response"          (bool) b_success
-
 "storage_status"
 
 "storage_close"
@@ -62,6 +60,8 @@ server response for equip request. item will be moved from `inventory` to `equip
 
 "unequip"                    (bool) b_success    (int) index
 server response for unequip request. item will be moved from `equipment` to `inventory`.
+
+"item_use_response"          (bool) b_success
 
 "char_update"
 player character

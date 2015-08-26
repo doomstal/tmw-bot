@@ -233,7 +233,15 @@ function packet_handler(...)
             send_packet("npc_choise", args[2], 1)
             return
         end
+        if args[2] == interacting_npc then
+            for k,v in pairs(args[3]) do
+                print(k,v)
+            end
+            return
+        end
         send_packet("npc_choise", args[2], #args[3]) -- last dialog variant usually ends conversation
+    elseif args[1] == "npc_next" then
+        send_packet("npc_next", args[2])
     elseif args[1] == "npc_close" then
         send_packet("npc_close", args[2])
     elseif args[1] == "trade_request" then
@@ -330,6 +338,25 @@ function leader_command(cmd)
     if cmd[1] == "reload" then
         send_packet("reload")
     elseif cmd[1] == "send_packet" then
+        if cmd[2] == "talk" then
+            local str = cmd[3]
+            for i=4,#cmd do str = str.." "..cmd[i] end
+            cmd[3] = str
+        elseif cmd[2] == "npc_talk" then
+            if tonumber(cmd[3])==nil then
+                myjoin(cmd, 3)
+                local being = find_being_name(cmd[3])
+                if not being then return end
+                cmd[3] = being.id
+                interacting_npc = being.id
+            else
+                interacting_npc = cmd[3]
+            end
+        elseif cmd[2] == "npc_close" and interacting_npc then
+            cmd[3] = interacting_npc
+            interacting_npc = nil
+        end
+
         local args = {}
         for i=2,#cmd do
             if tonumber(cmd[i]) ~= nil then
@@ -339,6 +366,13 @@ function leader_command(cmd)
             end
         end
         send_packet(table.unpack(args))
+    elseif cmd[1] == "call_func" then
+        local f = _G[cmd[2]]
+        if type(f) ~= "function" then return end
+        for i=3,#cmd do
+            if tonumber(cmd[i]) ~= nil then cmd[i] = tonumber(cmd[i]) end
+        end
+        f(table.unpack(cmd, 3))
     elseif cmd[1] == "print" then
         local var = cmd[2]
         local t = _G[var]
@@ -402,4 +436,16 @@ function mysplit(inputstr, sep)
         i = i + 1
     end
     return t
+end
+
+function myjoin(array, from) -- shortens array
+    if not from then from = 1 end
+    if from > #array then return end
+    local str = array[#array]
+    array[#array] = nil
+    for i = #array, from, -1 do
+        str = array[i].." "..str
+        array[i] = nil
+    end
+    array[from] = str
 end

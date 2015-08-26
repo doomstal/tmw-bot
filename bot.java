@@ -37,6 +37,8 @@ public class bot {
     public LuaTable warps = new LuaTable();
     public int clientTime = 0;
 
+    public LuaTable itemDB = new LuaTable();
+
     public Globals globals;
 
     public LuaValue script;
@@ -165,8 +167,54 @@ public class bot {
         }
     }
 
+    public void fill_itemDB() {
+        try {
+            final String[] files = {
+                "item_db_chest", "item_db_foot",
+                "item_db_generic", "item_db_hand",
+                "item_db_head", "item_db_leg",
+                "item_db_offhand", "item_db_trinket",
+                "item_db_use", "item_db_weapon"
+            };
+            for(String name: files) {
+                Scanner s = new Scanner(new FileInputStream(new File("server-data/world/map/db/"+name+".txt")));
+
+                while(s.hasNextLine()) {
+                    String line = s.nextLine();
+                    if(line.length() > 0 && !line.startsWith("//")) {
+                        Scanner s2 = new Scanner(line);
+                        s2.useDelimiter(",\\s*");
+                        LuaTable item = new LuaTable();
+                        int id = s2.nextInt();
+                        item.set("id", id);
+                        item.set("name", s2.next());
+                        s2.next(); // type
+                        item.set("price", s2.nextInt());
+                        item.set("sell", s2.nextInt());
+                        item.set("weight", s2.nextInt());
+                        int attack = s2.nextInt();
+                        if(attack > 0) item.set("attack", attack);
+                        int defence = s2.nextInt();
+                        if(defence > 0) item.set("deffence", defence);
+                        int range = s2.nextInt();
+                        if(range > 0) item.set("range", range);
+                        int mattack = s2.nextInt();
+                        if(mattack > 0) item.set("mattack", mattack);
+                        // ignore the rest
+                        itemDB.set(id, item);
+                    }
+                }
+            }
+        } catch(Exception e) {
+            e.printStackTrace();
+            System.exit(1);
+        }
+    }
+
     public bot() throws Exception {
         globals = JsePlatform.standardGlobals();
+
+        fill_itemDB();
 
         net.connect(this);
 
@@ -183,6 +231,7 @@ public class bot {
         globals.set("trade_sell", trade_sell);
         globals.set("client_time", clientTime);
         globals.set("warps", warps);
+        globals.set("itemDB", itemDB);
 
         map.load_map(mapName);
         load_warps(mapName);
@@ -440,7 +489,7 @@ public class bot {
                             net.writeInt16(0x00EF); // CMSG_TRADE_OK
                         } break;
                         case "trade_cancel": {
-                            net.writeInt16(0x00EE); // CMSG_TRADE_CANCEL
+                            net.writeInt16(0x00ED); // CMSG_TRADE_CANCEL
                         } break;
                     }
                 } catch(IOException e) {
@@ -978,7 +1027,10 @@ public class bot {
                                     LuaTable item = new LuaTable();
                                     int index = net.readInt16();
                                     item.set("index", index);
-                                    item.set("id", net.readInt16());
+                                    int id = net.readInt16();
+                                    item.set("id", id);
+                                    LuaValue item_db = itemDB.get(id);
+                                    if(item_db != NIL) item.set("name", item_db.get("name"));
                                     net.skip(1); // item type
                                     net.skip(1); // identified
                                     item.set("amount", net.readInt16());
@@ -1000,7 +1052,10 @@ public class bot {
                                     int index = net.readInt16();
                                     LuaTable item = new LuaTable();
                                     item.set("index", index);
-                                    item.set("id", net.readInt16());
+                                    int id = net.readInt16();
+                                    item.set("id", id);
+                                    LuaValue item_db = itemDB.get(id);
+                                    if(item_db != NIL) item.set("name", item_db.get("name"));
                                     net.skip(1); // item type
                                     net.skip(1); // identified
                                     net.skip(2); // equip point (?)
@@ -1015,28 +1070,35 @@ public class bot {
                             case 0x00A0: { // SMSG_PLAYER_INVENTORY_ADD
                                 int index = net.readInt16();
                                 int amount = net.readInt16();
+                                int id = net.readInt16();
                                 LuaTable item = new LuaTable();
                                 item.set("index", index);
                                 item.set("amount", amount);
-                                item.set("id", net.readInt16());
+                                item.set("id", id);
+                                LuaValue item_db = itemDB.get(id);
+                                if(item_db != NIL) item.set("name", item_db.get("name"));
                                 net.skip(1); // identified
                                 net.skip(1); // attribute
                                 net.skip(1); // refine
                                 net.skip(8); // cards
                                 net.skip(2); // equip type
                                 net.skip(1); // item type
-                                if(net.readInt8() == 0) {
+                                int status = net.readInt8();
+                                System.out.println("inventory_add ["+index+"] "+id+" "+amount+" "+status);
+                                if(status == 0) {
                                     LuaValue item1 = inventory.get(index);
-                                    if(item1 != NIL && item1.get("id") == item.get("id")) {
-                                        item.set("amount", amount + item1.get("amount").toint());
+                                    if(item1 != NIL) {
+                                        item1.set("amount", item1.get("amount").toint() + amount);
+                                    } else {
+                                        inventory.set(index, item);
                                     }
-                                    inventory.set(index, item);
                                 }
                                 packetHandler.call(valueOf("inventory_update"));
                             } break;
                             case 0x00AF: { // SMSG_PLAYER_INVENTORY_REMOVE
                                 int index = net.readInt16();
                                 int amount = net.readInt16();
+                                System.out.println("inventory_remove ["+index+"] "+amount);
                                 LuaValue item = inventory.get(index);
                                 if(item != NIL) {
                                     item.set("amount", item.get("amount").toint() - amount);
@@ -1096,7 +1158,10 @@ public class bot {
                                 LuaTable item = new LuaTable();
                                 item.set("index", index);
                                 item.set("amount", amount);
-                                item.set("id", net.readInt16());
+                                int id = net.readInt16();
+                                item.set("id", id);
+                                LuaValue item_db = itemDB.get(id);
+                                if(item_db != NIL) item.set("name", item_db.get("name"));
                                 net.skip(1); // identified
                                 net.skip(1); // attribute
                                 net.skip(1); // refine
@@ -1133,7 +1198,10 @@ public class bot {
                                     int index = net.readInt16();
                                     LuaTable item = new LuaTable();
                                     item.set("index", index);
-                                    item.set("id", net.readInt16());
+                                    int id = net.readInt16();
+                                    item.set("id", id);
+                                    LuaValue item_db = itemDB.get(id);
+                                    if(item_db != NIL) item.set("name", item_db.get("name"));
                                     net.skip(1); // item type
                                     net.skip(1); // identified
                                     net.skip(2); // equip type
@@ -1228,6 +1296,8 @@ public class bot {
                                     int itemId = net.readInt16();
                                     LuaTable item = new LuaTable();
                                     item.set("id", itemId);
+                                    LuaValue item_db = itemDB.get(itemId);
+                                    if(item_db != NIL) item.set("name", item_db.get("name"));
                                     item.set("value", value);
                                     buy_sell.set(i+1, item);
                                 }
@@ -1265,7 +1335,10 @@ public class bot {
                                 int id = net.readInt32();
                                 LuaTable item = new LuaTable();
                                 item.set("id", id);
-                                item.set("item_id", net.readInt16());
+                                int itemId = net.readInt16();
+                                item.set("item_id", itemId);
+                                LuaValue item_db = itemDB.get(itemId);
+                                if(item_db != NIL) item.set("name", item_db.get("name"));
                                 net.skip(1); // identified
                                 item.set("x", net.readInt16());
                                 item.set("y", net.readInt16());
@@ -1535,6 +1608,7 @@ public class bot {
                             case 0x00E9: { // SMSG_TRADE_ITEM_ADD
                                 int amount = net.readInt32();
                                 int id = net.readInt16();
+                                System.out.println("trade_item_add "+id+" "+amount);
                                 net.skip(1); // identified
                                 net.skip(1); // attribute
                                 net.skip(1); // refine
@@ -1551,12 +1625,27 @@ public class bot {
                             } break;
                             case 0x01B1: { // SMSG_TRADE_ITEM_ADD_RESPONSE
                                 int index = net.readInt16();
+                                int amount = net.readInt16();
+                                int status = net.readInt8();
+                                System.out.println("trade_add_response "+index+" "+amount+" "+status);
                                 String result;
                                 if(inventory.get(index) == NIL && equipment.get(index) == NIL) {
                                     result = "ok";
                                 } else {
-                                    int amount = net.readInt16();
-                                    switch(net.readInt8()) {
+                                    if(status == 0 && amount > 0) {
+                                        LuaValue item = inventory.get(index);
+                                        if(item != NIL) {
+                                            LuaTable sitem = new LuaTable();
+                                            sitem.set("index", item.get("index"));
+                                            sitem.set("id", item.get("id"));
+                                            sitem.set("amount", item.get("amount"));
+                                            if(sitem.get("amount") != NIL) {
+                                                sitem.set("amount", amount);
+                                            }
+                                            trade_sell.set(index, sitem);
+                                        }
+                                    }
+                                    switch(status) {
                                         case 0: // success
                                             result = "ok";
                                         break;
@@ -1583,12 +1672,34 @@ public class bot {
                                 packetHandler.call(valueOf("trade_cancel"));
                             } break;
                             case 0x00F0: { // SMSG_TRADE_COMPLETE
+                                int status = net.readInt8();
+                                String result = status==0 ? "ok" : "fail";
+                                if(status == 0) {
+                                    LuaValue k = NIL;
+                                    while(true) {
+                                        Varargs n = trade_sell.next(k);
+                                        if( (k=n.arg1()).isnil() ) break;
+                                        int index = k.toint();
+                                        if(index > 0) {
+                                            boolean remove = false;
+                                            LuaValue sitem = n.arg(2);
+                                            LuaValue item = inventory.get(index);
+                                            if(item != NIL) {
+                                                int amount = item.get("amount").toint();
+                                                if(amount > 0) amount -= sitem.get("amount").toint();
+                                                item.set("amount", amount);
+                                                if(amount < 1) inventory.set(index, NIL);
+                                            }
+                                        } else if(k.toString().equals("money")) {
+                                            character.set("money", character.get("money").toint() - n.arg(2).toint());
+                                        }
+                                    }
+                                }
                                 trade_buy = new LuaTable();
                                 trade_sell = new LuaTable();
-                                String result = net.readInt8()==0 ? "ok" : "fail";
                                 globals.set("trade_buy", trade_buy);
                                 globals.set("trade_sell", trade_sell);
-                                packetHandler.call(valueOf("trade_complete"), valueOf("result"));
+                                packetHandler.call(valueOf("trade_complete"), valueOf(result));
                             } break;
                             default:
                                 net.skipPacket();
