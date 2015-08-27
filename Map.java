@@ -3,6 +3,7 @@ import java.util.TreeSet;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 
 import java.util.LinkedList;
@@ -15,14 +16,13 @@ public class Map {
     public int width;
     public int height;
     int[][] map;
-    int[][] costs;
-    int path_cost;
-    int path_length;
 
-    public Map() {
-        for(int i=0; i!=maxWalkSize; ++i) {
-            walk[i] = new Position();
-        }
+    static int costs_width = 500;
+    static int costs_height = 500;
+    static int[][] costs = new int[costs_height][costs_width];
+
+    public Map(String map_name) {
+        load_map(map_name);
     }
 
     void new_region(int x, int y, int region) {
@@ -56,36 +56,78 @@ public class Map {
 
     public void load_map(String map_name) {
         try {
-            FileInputStream in = new FileInputStream(new File("server-data/world/map/data/" + map_name + ".wlk"));
+            boolean cached = true;
+            File file = new File("cache/maps/" + map_name + ".map");
+            if(!file.exists()) {
+                file = new File("server-data/world/map/data/" + map_name + ".wlk");
+                cached = false;
+            }
+
+            FileInputStream in = new FileInputStream(file);
             width = (in.read() + (in.read() << 8));
             height = (in.read() + (in.read() << 8));
             map = new int[height][width];
-            costs = new int[height][width];
+            if(width > costs_width || height > costs_height) {
+                costs_width = width;
+                costs_height = height;
+                costs = new int[costs_height][costs_width];
+            }
+            byte[] buff = new byte[width];
             for(int j=0; j!=height; ++j) {
+                if(in.read(buff) != width) throw new RuntimeException("bad map file: "+file.getName());
                 for(int i=0; i!=width; ++i) {
-                    if((in.read() & 0x01) != 0) map[j][i] = 0;
-                    else map[j][i] = -1;
+                    if(cached) {
+                        map[j][i] = buff[i];
+                    } else {
+                        if((buff[i] & 0x01) != 0) map[j][i] = 0;
+                        else map[j][i] = -1;
+                    }
                 }
             }
+            in.close();
 
-            int region = 1;
-            for(int j=0; j!=height; ++j) {
-                for(int i=0; i!=width; ++i) {
-                    if(map[j][i] == -1) new_region(i, j, region++);
+            if(!cached) {
+                int region = 1;
+                for(int j=0; j!=height; ++j) {
+                    for(int i=0; i!=width; ++i) {
+                        if(map[j][i] == -1) new_region(i, j, region++);
+                    }
                 }
-            }
+                if(region > 255) {
+                    System.out.println("too many regions!");
+                    System.exit(1);
+                }
 
-            System.out.println("map loaded "+map_name+" "+width+","+height);
+                file = new File("cache/maps/" + map_name + ".map");
+                if(!file.exists()) {
+                    file.getParentFile().mkdirs();
+                    file.createNewFile();
+                }
+                FileOutputStream out = new FileOutputStream(file);
+                out.write((byte)(width & 0xFF));
+                out.write((byte)(width >> 8));
+                out.write((byte)(height & 0xFF));
+                out.write((byte)(height >> 8));
+                for(int j=0; j!=height; ++j) {
+                    for(int i=0; i!=width; ++i) {
+                        out.write((byte)map[j][i]);
+                    }
+                }
+                out.close();
+                System.out.println("saved map to cache "+map_name+" "+width+","+height);
+            } else {
+                System.out.println("loaded cached map "+map_name+" "+width+","+height);
+            }
         } catch(IOException e) {
             e.printStackTrace();
             System.exit(1);
         }
     }
 
-    final int maxWalkSize = 10000;
-    Position[] walk = new Position[maxWalkSize];
-    int walkFirst = 0;
-    int walkLast = 0;
+    static final int maxWalkSize = 250000;
+    static Position[] walk = new Position[maxWalkSize];
+    static int walkFirst = 0;
+    static int walkLast = 0;
 
     boolean walk_empty() {
         return walkFirst == walkLast;
@@ -117,7 +159,7 @@ public class Map {
     public int y1;
     public int y2;
 
-    public class Position {
+    public static class Position {
         public int x;
         public int y;
         public int cost;
@@ -149,7 +191,7 @@ public class Map {
         return map[y+dy][x+dx]!=0 && map[y][x+dx]!=0 && map[y+dy][x]!=0;
     }
 
-    LuaTable lua_position(int x, int y) {
+    static LuaTable lua_position(int x, int y) {
         LuaTable t = new LuaTable();
         t.set("x", x);
         t.set("y", y);
@@ -162,7 +204,7 @@ public class Map {
         return map[y1][x1]!=0 && map[y2][x2]!=0 && map[y1][x1]==map[y2][x2];
     }
 
-    LuaValue find_path(int lx1, int ly1, int lx2, int ly2) {
+    public LuaValue find_path(int lx1, int ly1, int lx2, int ly2) {
         this.x1 = lx1;
         this.y1 = ly1;
         this.x2 = lx2;
@@ -191,7 +233,9 @@ public class Map {
         }
         if(tmp_path != null) return tmp_path;
 
-        path_cost = -1;
+        int path_cost = -1;
+        int path_length = 0;
+
         for(int j=0; j!=height; ++j) {
             for(i=0; i!=width; ++i) costs[j][i] = -1;
         }
@@ -256,5 +300,11 @@ public class Map {
             return NIL;
         }
         return path;
+    }
+
+    static {
+        for(int i=0; i!=maxWalkSize; ++i) {
+            walk[i] = new Position();
+        }
     }
 }

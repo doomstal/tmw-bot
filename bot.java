@@ -2,6 +2,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.concurrent.Semaphore;
+import java.util.HashMap;
 import java.util.Scanner;
 import java.util.regex.MatchResult;
 import java.util.regex.Pattern;
@@ -57,7 +58,8 @@ public class bot {
     Semaphore writeLock = new Semaphore(1, true);
     Semaphore dataLock = new Semaphore(1, true);
 
-    Map map = new Map();
+    HashMap<String, Map> maps = new HashMap<String, Map>();
+    Map map;
 
     public LuaValue createBeing(int id, int job) throws IOException {
         LuaTable being = new LuaTable();
@@ -132,6 +134,19 @@ public class bot {
 
         } else {
             being.set("path", NIL);
+        }
+    }
+
+    public void load_maps() {
+        File[] files = new File("server-data/world/map/data").listFiles();
+        for(File file: files) {
+            if(!file.isDirectory()) {
+                String name = file.getName();
+                if(name.matches("\\d\\d\\d-\\d\\.wlk")) {
+                    String map_name = name.substring(0, 5);
+                    maps.put(map_name, new Map(map_name));
+                }
+            }
         }
     }
 
@@ -233,6 +248,7 @@ public class bot {
         globals = JsePlatform.standardGlobals();
 
         fill_itemDB();
+        load_maps();
         load_warps();
 
         net.connect(this);
@@ -252,7 +268,8 @@ public class bot {
         globals.set("warps", warps);
         globals.set("itemDB", itemDB);
 
-        map.load_map(mapName);
+        map = maps.get(mapName);
+        if(map == null) throw new RuntimeException("map "+mapName+" doesn't exist!");
 
         beings.set(character.get("id"), character);
 
@@ -1426,7 +1443,8 @@ public class bot {
                                 int x = net.readInt16();
                                 int y = net.readInt16();
                                 if(!dstMap.equals(mapName)) {
-                                    map.load_map(dstMap);
+                                    map = maps.get(dstMap);
+                                    if(map == null) throw new RuntimeException("map "+dstMap+" doesn't exist!");
                                 }
                                 mapLoaded = true;
                                 mapName = dstMap;
