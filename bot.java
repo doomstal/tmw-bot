@@ -273,12 +273,7 @@ public class bot {
 
         beings.set(character.get("id"), character);
 
-        script = globals.loadfile("bot.lua");
-        script.call();
-        packetHandler = globals.get("packet_handler");
-        loopBody = globals.get("loop_body");
-
-        LuaValue mapAccesible = new VarArgFunction() {
+        LuaValue mapAccessible = new VarArgFunction() {
             @Override
             public Varargs invoke(Varargs args) {
                 int x1 = args.arg(1).toint();
@@ -292,7 +287,47 @@ public class bot {
             }
         };
 
-        globals.set("map_accesible", mapAccesible);
+        globals.set("map_accessible", mapAccessible);
+
+        LuaValue mapRegion = new VarArgFunction() {
+            @Override
+            public Varargs invoke(Varargs args) {
+                String map_name = args.arg(1).toString();
+                int x = args.arg(2).toint();
+                int y = args.arg(3).toint();
+
+                LuaValue ret = NIL;
+                if(maps.containsKey(map_name)) {
+                    Map map = maps.get(map_name);
+                    ret = valueOf(map.get_region(x, y));
+                }
+
+                return varargsOf(new LuaValue[] {ret});
+            }
+        };
+
+        globals.set("map_region", mapRegion);
+
+        LuaValue mapFindPath = new VarArgFunction() {
+            @Override
+            public Varargs invoke(Varargs args) {
+                int x1 = args.arg(1).toint();
+                int y1 = args.arg(2).toint();
+                int x2 = args.arg(3).toint();
+                int y2 = args.arg(4).toint();
+
+                LuaValue ret = map.find_path(x1, y1, x2, y2);
+
+                return varargsOf(new LuaValue[] {ret});
+            }
+        };
+
+        globals.set("map_find_path", mapFindPath);
+
+        script = globals.loadfile("bot.lua");
+        script.call();
+        packetHandler = globals.get("packet_handler");
+        loopBody = globals.get("loop_body");
 
         LuaValue sendPacket = new VarArgFunction() {
             @Override
@@ -1436,9 +1471,16 @@ public class bot {
                                 net.readCoordinatePair(character);
                                 being_update_path(character);
                                 System.out.println("smsg_walk_response " + net.readInt8());
+                                packetHandler.call(valueOf("walk_response"));
 //                                net.skip(1);
                             } break;
                             case 0x0091: { // SMSG_PLAYER_WARP
+                                beings = new LuaTable();
+                                beings.set(character.get("id"), character);
+                                globals.set("beings", beings);
+                                items = new LuaTable();
+                                globals.set("items", items);
+
                                 String dstMap = net.readString(16);
                                 int x = net.readInt16();
                                 int y = net.readInt16();

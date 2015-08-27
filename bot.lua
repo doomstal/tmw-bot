@@ -6,26 +6,58 @@ leader = nil
 
 inside_koga = false
 interacting_npc = nil
+koga_destination = nil
 
 trade_confirm_me = false
 trade_confirm_other = false
 
+route = nil
+route_destination = nil
+
+locations = {}
+locations["candor"] = { map = "029-1", x = 45, y = 95 }
+locations["candor bank"] = { map = "029-2", x = 32, y = 121 }
+locations["hurnscald"] = { map = "009-1", x = 53, y = 31 }
+locations["hurnscald store"] = { map = "009-2", x = 18, y = 103 }
+locations["graveyard inn"] = { map = "027-2", x = 30, y = 29 }
+
+local candor_ferry_destinations = {
+    { map = "029-1", x = 46 , y = 109 },
+    { map = "008-1", x = 137, y = 75 }
+}
+local world_ferry_destinations = {
+    { map = "008-1", x = 137 , y = 64 },
+    { map = "031-1", x = 95 , y = 109 },
+    { map = "001-1", x = 63 , y = 73 }
+}
 koga_npcs = {}
-koga_npcs["Candor Koga"] = 1
-koga_npcs["Hurnscald South Koga"] = 1
-koga_npcs["Hurnscald North Koga"] = 1
-koga_npcs["Nivalis Koga"] = 1
-koga_npcs["Tulimshar Koga"] = 1
+koga_npcs["Candor Koga"] = { name = "Candor Koga", map = "029-1", x = 53, y = 112, destinations = candor_ferry_destinations }
+koga_npcs["Hurnscald South Koga"] = { name = "Hurnscald South Koga", map = "008-1", x = 141, y = 76, destinations = candor_ferry_destinations }
+koga_npcs["Hurnscald North Koga"] = { name = "Hurnscald North Koga", map = "008-1", x = 141, y = 65, destinations = world_ferry_destinations }
+koga_npcs["Nivalis Koga"] = { name = "Nivalis Koga", map = "031-1", x = 107, y = 110, destinations = world_ferry_destinations }
+koga_npcs["Tulimshar Koga"] = { name = "Tulimshar Koga", map = "001-1", x = 76, y = 73, destinations = world_ferry_destinations }
 
 koga_emblems = {}
-koga_emblems[410] = "tulimshar"
-koga_emblems[412] = "hurnscald"
-koga_emblems[414] = "nivalis"
-koga_emblems[416] = "candor"
+koga_emblems["001-1"] = { job = 410, map = "001-1" } -- tulimshar
+koga_emblems["008-1"] = { job = 412, map = "008-1" } -- hurnscald
+koga_emblems["031-1"] = { job = 414, map = "031-1" } -- nivalis
+koga_emblems["029-1"] = { job = 416, map = "029-1" } -- candor
 
 koga_maps = {}
-koga_maps["035-2"] = { exitx = 39, exity = 29 }
-koga_maps["036-2"] = { exitx = 39, exity = 29 }
+koga_maps["035-2"] = { map = "035-2", sitx = 37, sity = 27, exitx = 39, exity = 29, destinations = world_ferry_destinations }
+koga_maps["036-2"] = { map = "036-2", sitx = 37, sity = 27, exitx = 39, exity = 29, destinations = candor_ferry_destinations }
+
+if warps then
+    local cwarps = warps["029-2"] -- theese are not in the warp list
+    cwarps[#cwarps+1] = { src_map = "029-2", src_x = 44, src_y = 31, dst_map = "029-2", dst_x = 112, dst_y = 85 }
+    cwarps[#cwarps+1] = { src_map = "029-2", src_x = 114, src_y = 93, dst_map = "029-1", dst_x = 32, dst_y = 100 }
+    for _,wrps in pairs(warps) do
+        for _, warp in pairs(wrps) do
+            warp.src_region = map_region(warp.src_map, warp.src_x, warp.src_y)
+            warp.dst_region = map_region(warp.dst_map, warp.dst_x, warp.dst_y)
+        end
+    end
+end
 
 state_stack = {
     push = function(self, st)
@@ -41,7 +73,17 @@ state_stack = {
     end
 }
 
+old_state = nil
+
 function loop_body()
+    if state ~= old_state then
+        print("new_state", state)
+        local str = "state_stack ="
+        for _,v in ipairs(state_stack) do str = str.." "..v end
+        print(str)
+        old_state = state
+    end
+
     leader = beings[leader_id]
     if not leader then
         leader = find_being_name(leader_name)
@@ -60,14 +102,21 @@ function loop_body()
         end
         if not wait_time then wait_time = client_time + 5000 end
         if character.action ~= "sit" and wait_time < client_time then
+            send_packet("turn", 1)
             send_packet("action", "sit")
             character.action = "sit"
         end
     elseif state == "leader_follow" then
-        if not leader and leader_x and leader_y and (character.x ~= leader_x or character.y ~= leader_y) then
-            walk(leader_x, leader_y) -- leader's last known position
-            return
-        elseif not leader then -- leader could warp to other map or use ferry
+        if not leader then -- leader could warp to other map or use ferry
+            if leader_x and leader_y then
+                if (character.x ~= leader_x or character.y ~= leader_y) then
+                    walk(leader_x, leader_y) -- leader's last known position
+                    return
+                else
+                    leader_x = nil
+                    leader_y = nil
+                end
+            end
             if inside_koga then
                 local koga = koga_maps[map_name]
                 if character.x==koga.exitx and math.abs(character.y-koga.exity)<3 then
@@ -129,9 +178,9 @@ function loop_body()
             elseif character.x > leader.dstx then dx = 1 end
             if character.y < leader.dsty then dy = -1
             elseif character.y > leader.dsty then dy = 1 end
-            if not map_accesible(character.x, character.y, targetx + dx, targety + dy) then
+            if not map_accessible(character.x, character.y, targetx + dx, targety + dy) then
                 dx = 0
-                if not map_accesible(character.x, character.y, targetx + dx, targety + dy) then dy = 0 end
+                if not map_accessible(character.x, character.y, targetx + dx, targety + dy) then dy = 0 end
             end
             targetx = targetx + dx
             targety = targety + dy
@@ -149,18 +198,18 @@ function loop_body()
             if leader.dir == 4 or leader.dir == 1 then -- up or down
                 if character.x > leader.dstx then targetx = leader.dstx+1
                 else targetx = leader.dstx-1 end
-                if not map_accesible(character.x, character.y, targetx, targety) then
-                    if map_accesible(character.x, character.y, leader.dstx + 1, targety) then targetx = leader.dstx + 1
-                    elseif map_accesible(character.x, character.y, leader.dstx - 1, targety) then targetx = leader.dstx - 1
+                if not map_accessible(character.x, character.y, targetx, targety) then
+                    if map_accessible(character.x, character.y, leader.dstx + 1, targety) then targetx = leader.dstx + 1
+                    elseif map_accessible(character.x, character.y, leader.dstx - 1, targety) then targetx = leader.dstx - 1
                     else targetx = leader.dstx
                     end
                 end
             elseif leader.dir == 8 or leader.dir == 2 then -- left or right
                 if character.y > leader.dsty then targety = leader.dsty+1
                 else targety = leader.dsty-1 end
-                if not map_accesible(character.x, character.y, targetx, targety) then
-                    if map_accesible(character.x, character.y, targetx, leader.dsty + 1) then targety = leader.dsty + 1
-                    elseif map_accesible(character.x, character.y, targetx, leader.dsty - 1) then targety = leader.dsty - 1
+                if not map_accessible(character.x, character.y, targetx, targety) then
+                    if map_accessible(character.x, character.y, targetx, leader.dsty + 1) then targety = leader.dsty + 1
+                    elseif map_accessible(character.x, character.y, targetx, leader.dsty - 1) then targety = leader.dsty - 1
                     else targety = leader.dsty
                     end
                 end
@@ -195,12 +244,97 @@ function loop_body()
             state = state_stack:pop()
             interacting_npc = nil
         end
+    elseif state == "koga_inside" then
+        if not inside_koga then print("!!! not inside_koga") return end
+        if not koga_destination then print("not koga_destination") return end
+
+        if find_being_job(koga_emblems[koga_destination].job) then
+            state = "koga_disembarking"
+            return
+        end
+
+        local koga_map = koga_maps[map_name]
+        local targetx = koga_map.sitx
+        local targety = koga_map.sity
+        if character.x ~= targetx or character.y ~= targety then
+            walk(targetx, targety)
+        else
+            if character.action ~= "sit" then
+                send_packet("turn", 1)
+                send_packet("action", "sit")
+                character.action = "sit"
+            end
+        end
     elseif state == "koga_disembarking" then
         if inside_koga then
             local koga = koga_maps[map_name]
             walk(koga.exitx, koga.exity)
         else
+            koga_destination = nil
             state = state_stack:pop()
+        end
+    elseif state == "goto" then
+        if route and #route > 0 then
+            local region = route[#route]
+            local targetx, targety
+            if region.map ~= map_name or region.region ~= map_region(map_name, character.x, character.y) then
+                if region.warp then
+                    if region.warp.src_map ~= map_name then print("!!! region.warp.src_map ~= map_name") return end
+                    targetx = region.warp.src_x
+                    targety = region.warp.src_y
+                elseif region.koga then
+                    if region.koga.map ~= map_name then print("!!! region.koga.map ~= map_name") return end
+                    targetx = region.koga.x
+                    targety = region.koga.y
+                elseif region.koga_map then
+                    if region.koga_map.map ~= map_name then print("!!! region.koga_map.map ~= map_name") return end
+                    koga_destination = region.map
+                    state_stack:push(state)
+                    state = "koga_inside"
+                    return
+                end
+                if character.x ~= targetx or character.y ~= targety then
+                    walk(targetx, targety)
+                    return
+                else
+                    if region.koga then
+                        local koga = find_being_name(region.koga.name)
+                        if koga then
+                            koga_destination = region.map
+                            state_stack:push(state)
+                            state_stack:push("koga_inside")
+                            state = "koga_boarding"
+                            interacting_npc = koga.id
+                            send_packet("npc_talk", koga.id)
+                            return
+                        else
+                            if character.action ~= "sit" then
+                                send_packet("turn", 1)
+                                send_packet("action", "sit")
+                                character.action = "sit"
+                            end
+                            return
+                        end
+                    end
+                end
+            else
+                route[#route] = nil
+                if route[#route] then
+                    print("next region", route[#route].map)
+                end
+                return
+            end
+        else
+            if map_name ~= route_destination.map then print("!!! map_name ~= route_destination.map") return end
+            if not route_destination.region then route_destination.region = map_region(route_destination.map, route_destination.x, route_destination.y) end
+            if map_region(map_name, character.x, character.y) ~= route_destination.region then print("!!! map_region ~= route_destination.region") return end
+            local targetx = route_destination.x
+            local targety = route_destination.y
+            if character.x ~= targetx or character.y ~= targety then
+                walk(targetx, targety)
+            else
+                state = state_stack:pop()
+            end
         end
     end
     return true
@@ -223,6 +357,8 @@ function packet_handler(...)
         if args[2] == leader_name then leader_command(args[3]) end
     elseif args[1] == "player_warp" then
         leader = nil
+        leader_x = nil
+        leader_y = nil
         wait_time = nil
     elseif args[1] == "npc_choise" then
         if state == "koga_boarding" and args[2] == interacting_npc then
@@ -271,9 +407,21 @@ walk_time = client_time
 function walk(x, y)
     if character.action == "dead" then return end
 --    print(character.dstx, x, character.dsty, y)
+
+    if math.max(math.abs(character.x-x),math.abs(character.y-y)) > 10 then
+        local path = map_find_path(character.x, character.y, x, y)
+        if path and #path > 10 then
+            x = path[10].x
+            y = path[10].y
+        end
+        if not path then
+            print("not path", character.x, character.y, character.dstx, character.dsty, x, y)
+        end
+    end
+
     if character.dstx==x and character.dsty==y then return end
 --    print(character.x, character.dstx, character.y, character.dsty)
-    if character.x~=character.dstx or character.y~=character.dsty then return end
+--    if character.x~=character.dstx or character.y~=character.dsty then return end
 --    print(client_time, walk_time)
     if client_time < walk_time then return end
 
@@ -298,6 +446,14 @@ end
 function find_being_name(name)
     for id, being in pairs(beings) do
         if being.name == name then
+            return being
+        end
+    end
+end
+
+function find_being_job(job)
+    for id, being in pairs(beings) do
+        if being.job == job then
             return being
         end
     end
@@ -429,7 +585,136 @@ function leader_command(cmd)
         if state == "leader_wait_passive" then
             state = "leader_wait"
         end
+    elseif cmd[1] == "goto" then
+--        if state ~= "leader_follow" and state ~= "leader_wait" and state ~= "leader_wait_passive" then return end
+        myjoin(cmd, 2)
+        local dest = locations[cmd[2]]
+        if not dest then return end
+
+        print("destination", dest.map, map_region(dest.map, dest.x, dest.y), dest.x, dest.y)
+        route = find_route({map = map_name, x = character.x, y = character.y}, dest)
+        if route and #route > 0 then
+            print("*** route")
+            for _,r in pairs(route) do
+                if r.warp then print(r.map, r.region, r.x, r.y, "warp", r.warp.src_map, r.warp.src_region, r.warp.src_x, r.warp.src_y, "to", r.warp.dst_map, r.warp.dst_region, r.warp.dst_x, r.warp.dst_y) end
+                if r.koga then print(r.map, r.region, r.x, r.y, "koga", r.koga.name, r.koga.map, r.koga.x, r.koga.y) end
+            end
+            print("*** route")
+            print("current", map_name, map_region(map_name, character.x, character.y), character.x, character.y)
+--            if true then return end
+            walk(character.x, character.y)
+            route_destination = dest
+            state_stack:push("leader_wait")
+            state = "goto"
+        end
     end
+end
+
+--[[
+    start_region = map, [x, y] or [region]
+    location = map, [x, y] or [region]
+    returns sequence of { map, [warp] [koga] [koga_map] } - maps to location in reverse order
+]]
+function find_route(start_region, location)
+    if not location.region then location.region = map_region(location.map, location.x, location.y) end
+    local location_tag = location.map.."-"..location.region
+--    print("location_tag", location_tag)
+
+    local viewed_regions = {}
+    local regions_to_view = { }
+
+    if not start_region.region then start_region.region = map_region(start_region.map, start_region.x, start_region.y) end
+    local start_region_tag = start_region.map.."-"..start_region.region
+
+    viewed_regions[start_region_tag] = 1;
+    regions_to_view[1] = start_region
+    local i_start = 1
+    local i_end = 2;
+
+    local region = nil
+    while i_start < i_end do
+        region = regions_to_view[i_start]
+        i_start = i_start + 1
+
+        local region_tag = region.map.."-"..region.region
+--        print("region_tag", region_tag)
+        if region_tag == location_tag then break end
+
+        if region.x and region.y then
+            table.sort(warps[region.map], function(a,b)
+                return (a.src_x-region.x)^2+(a.src_y-region.y)^2 < (b.src_x-region.x)^2+(a.src_y-region.y)
+            end)
+        end
+        for _, warp in pairs(warps[region.map]) do
+--            print("warp src region", map_region(warp.src_map, warp.src_x, warp.src_y))
+            if warp.src_map == region.map and map_region(warp.src_map, warp.src_x, warp.src_y) == region.region then
+                local new_region = {
+                    map = warp.dst_map,
+                    x = warp.dst_x,
+                    y = warp.dst_y,
+                    region = map_region(warp.dst_map, warp.dst_x, warp.dst_y),
+                    warp = warp,
+                    prev = region
+                }
+                local new_region_tag = new_region.map.."-"..new_region.region
+--                print("new_region_tag", new_region_tag)
+
+                if not viewed_regions[new_region_tag] then
+                    viewed_regions[new_region_tag] = 1;
+                    regions_to_view[i_end] = new_region
+                    i_end = i_end + 1
+                end
+            end
+        end
+        for name, koga in pairs(koga_npcs) do
+            if koga.map == region.map and map_region(koga.map, koga.x, koga.y) == region.region then
+                for _, dest in pairs(koga.destinations) do
+                    local new_region = {
+                        map = dest.map,
+                        x = dest.x,
+                        y = dest.y,
+                        region = map_region(dest.map, dest.x, dest.y),
+                        koga = koga,
+                        prev = region
+                    }
+                    local new_region_tag = new_region.map.."-"..new_region.region
+
+                    if not viewed_regions[new_region_tag] then
+                        viewed_regions[new_region_tag] = 1;
+                        regions_to_view[i_end] = new_region
+                        i_end = i_end + 1
+                    end
+                end
+            end
+        end
+        if koga_maps[region.map] then
+            local koga_map = koga_maps[region.map]
+            for _, dest in pairs(koga_map.destinations) do
+                local new_region = {
+                    map = dest.map,
+                    x = dest.x,
+                    y = dest.y,
+                    region = map_region(dest.map, dest.x, dest.y),
+                    koga_map = koga_map,
+                    prev = region
+                }
+                local new_region_tag = new_region.map.."-"..new_region.region
+
+                if not viewed_regions[new_region_tag] then
+                    viewed_regions[new_region_tag] = 1;
+                    regions_to_view[i_end] = new_region
+                    i_end = i_end + 1
+                end
+            end
+        end
+    end
+
+    local route = {}
+    while region do
+        route[#route+1] = region
+        region = region.prev
+    end
+    return route
 end
 
 function mysplit(inputstr, sep)

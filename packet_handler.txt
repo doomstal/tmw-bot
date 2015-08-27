@@ -27,6 +27,9 @@ pure damage to hp
 
 "being_guild_info"           (int) id
 
+"walk_response"
+walk command success
+
 "player_update"              (int) id
 
 "player_stop"                (int) id            (int) x             (int) y

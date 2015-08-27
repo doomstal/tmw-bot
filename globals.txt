@@ -1,4 +1,13 @@
-global variable for use in lua. updated automatically
+global variables and functions for use in lua. updated automatically
+
+(function) map_accessible(x1, y1, x2, y2)
+returns true if points are in same map region
+
+(function) map_region(x, y)
+returns region id
+
+(function) map_find_path(x1, y1, x2, y2)
+returns shortest path (sequence of {x, y})
 
 (table) character
 stores available information about player character. updated over time
