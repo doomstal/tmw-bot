@@ -65,7 +65,7 @@ public class bot {
         LuaTable being = new LuaTable();
         if(id == character.get("id").toint()) being = character;
         String type = null;
-        being.set("job", job);
+        being.set("race", job);
         if(job <=25 || (job >= 4001 && job <= 4049)) {
             type = "player";
         } else if(job >= 46 && job <= 1000) {
@@ -76,6 +76,8 @@ public class bot {
             type = "portal";
         }
         being.set("type", type);
+
+        being.set("dir", 1);
 
         beings.set(id, being);
 
@@ -151,17 +153,16 @@ public class bot {
     }
 
     public void load_warps() {
-        warps = new LuaTable();
-        globals.set("warps", warps);
-            File[] files = new File("server-data/world/map/npc").listFiles();
-            for(File file: files) {
-                if(file.isDirectory()) {
-                    String name = file.getName();
-                    if(name.matches("\\d\\d\\d-\\d")) {
-                        warps.set(name, load_warps(name));
-                    }
+        Utils.clearTable(warps);
+        File[] files = new File("server-data/world/map/npc").listFiles();
+        for(File file: files) {
+            if(file.isDirectory()) {
+                String name = file.getName();
+                if(name.matches("\\d\\d\\d-\\d")) {
+                    warps.set(name, load_warps(name));
                 }
             }
+        }
     }
 
     public LuaValue load_warps(String map_name) {
@@ -228,7 +229,7 @@ public class bot {
                         int attack = s2.nextInt();
                         if(attack > 0) item.set("attack", attack);
                         int defence = s2.nextInt();
-                        if(defence > 0) item.set("deffence", defence);
+                        if(defence > 0) item.set("defence", defence);
                         int range = s2.nextInt();
                         if(range > 0) item.set("range", range);
                         int mattack = s2.nextInt();
@@ -242,6 +243,20 @@ public class bot {
             e.printStackTrace();
             System.exit(1);
         }
+    }
+
+    public void update_character_stats() {
+        character.set("str", character.get("str_base").toint() + character.get("str_mod").toint());
+        character.set("agi", character.get("agi_base").toint() + character.get("agi_mod").toint());
+        character.set("vit", character.get("vit_base").toint() + character.get("vit_mod").toint());
+        character.set("int", character.get("int_base").toint() + character.get("int_mod").toint());
+        character.set("dex", character.get("dex_base").toint() + character.get("dex_mod").toint());
+        character.set("luk", character.get("luk_base").toint() + character.get("luk_mod").toint());
+        character.set("attack", character.get("attack_base").toint() + character.get("attack_mod").toint());
+        character.set("defence", character.get("defence_base").toint() + character.get("defence_mod").toint());
+        character.set("mattack", character.get("mattack_base").toint() + character.get("mattack_mod").toint());
+        character.set("mdefence", character.get("mdefence_base").toint() + character.get("mdefence_mod").toint());
+        character.set("evasion", character.get("evasion_base").toint() + character.get("evasion_mod").toint());
     }
 
     public bot() throws Exception {
@@ -273,7 +288,7 @@ public class bot {
 
         beings.set(character.get("id"), character);
 
-        LuaValue mapAccessible = new VarArgFunction() {
+        globals.set("map_accessible", new VarArgFunction() {
             @Override
             public Varargs invoke(Varargs args) {
                 int x1 = args.arg(1).toint();
@@ -285,11 +300,9 @@ public class bot {
 
                 return varargsOf(new LuaValue[] {ret});
             }
-        };
+        });
 
-        globals.set("map_accessible", mapAccessible);
-
-        LuaValue mapRegion = new VarArgFunction() {
+        globals.set("map_region", new VarArgFunction() {
             @Override
             public Varargs invoke(Varargs args) {
                 String map_name = args.arg(1).toString();
@@ -304,11 +317,9 @@ public class bot {
 
                 return varargsOf(new LuaValue[] {ret});
             }
-        };
+        });
 
-        globals.set("map_region", mapRegion);
-
-        LuaValue mapFindPath = new VarArgFunction() {
+        globals.set("map_find_path", new VarArgFunction() {
             @Override
             public Varargs invoke(Varargs args) {
                 int x1 = args.arg(1).toint();
@@ -320,16 +331,14 @@ public class bot {
 
                 return varargsOf(new LuaValue[] {ret});
             }
-        };
-
-        globals.set("map_find_path", mapFindPath);
+        });
 
         script = globals.loadfile("bot.lua");
         script.call();
         packetHandler = globals.get("packet_handler");
         loopBody = globals.get("loop_body");
 
-        LuaValue sendPacket = new VarArgFunction() {
+        globals.set("send_packet", new VarArgFunction() {
             @Override
             public Varargs invoke(Varargs args) {
                 try {
@@ -350,41 +359,41 @@ public class bot {
                             int x = args.arg(2).toint();
                             int y = args.arg(3).toint();
                             int dir = args.arg(4).toint();
-                            net.writeInt16(0x0085); // CMSG_PLAYER_CHANGE_DEST
+                            net.sendPacket(0x0085); // CMSG_PLAYER_CHANGE_DEST
                             net.writeCoordinates(x, y, dir);
                         } break;
                         case "talk": {
                             String msg = character.get("name") + " : " + args.arg(2).toString();
-                            net.writeInt16(0x008C); // CMSG_CHAT_MESSAGE
+                            net.sendPacket(0x008C); // CMSG_CHAT_MESSAGE
                             net.writeInt16(4 + msg.length() + 1);
                             net.writeString(msg.length() + 1, msg);
                         } break;
                         case "whisper": {
                             String nick = args.arg(2).toString();
                             String msg = args.arg(3).toString();
-                            net.writeInt16(0x0096); // CMSG_CHAT_WHISPER
+                            net.sendPacket(0x0096); // CMSG_CHAT_WHISPER
                             net.writeInt16(msg.length() + 28);
                             net.writeString(24, nick);
                             net.writeString(msg.length(), msg);
                         } break;
                         case "storage_close": {
-                            net.writeInt16(0x00F7); // CMSG_CLOSE_STORAGE
+                            net.sendPacket(0x00F7); // CMSG_CLOSE_STORAGE
                         } break;
                         case "equip": {
                             int index = args.arg(2).toint();
-                            net.writeInt16(0x00A9); // CMSG_PLAYER_EQUIP
+                            net.sendPacket(0x00A9); // CMSG_PLAYER_EQUIP
                             net.writeInt16(index);
                             net.writeInt16(0);
                         } break;
                         case "unequip": {
                             int index = args.arg(2).toint();
-                            net.writeInt16(0x00AB); // CMSG_PLAYER_UNEQUIP
+                            net.sendPacket(0x00AB); // CMSG_PLAYER_UNEQUIP
                             net.writeInt16(index);
                         } break;
                         case "use": {
                             int index = args.arg(2).toint();
                             LuaValue item = inventory.get(index);
-                            net.writeInt16(0x00A7); // CMSG_PLAYER_INVENTORY_USE
+                            net.sendPacket(0x00A7); // CMSG_PLAYER_INVENTORY_USE
                             net.writeInt16(index);
                             net.writeInt32(item.get("id").toint());
                         } break;
@@ -392,7 +401,7 @@ public class bot {
                             int index = args.arg(2).toint();
                             int amount = args.arg(3).toint();
                             if(amount < 1) amount = 1;
-                            net.writeInt16(0x00A2); // CMSG_PLAYER_INVENTORY_DROP
+                            net.sendPacket(0x00A2); // CMSG_PLAYER_INVENTORY_DROP
                             net.writeInt16(index);
                             net.writeInt16(amount);
                         } break;
@@ -400,28 +409,28 @@ public class bot {
                             int index = args.arg(2).toint();
                             int amount = args.arg(3).toint();
                             if(amount < 1) amount = 1;
-                            net.writeInt16(0x00F3); // CMSG_MOVE_TO_STORAGE
+                            net.sendPacket(0x00F3); // CMSG_MOVE_TO_STORAGE
                             net.writeInt16(index);
-                            net.writeInt16(amount);
+                            net.writeInt32(amount);
                         } break;
                         case "from_storage": {
                             int index = args.arg(2).toint();
                             int amount = args.arg(3).toint();
                             if(amount < 1) amount = 1;
-                            net.writeInt16(0x00F5); // CMSG_MOVE_FROM_STORAGE
+                            net.sendPacket(0x00F5); // CMSG_MOVE_FROM_STORAGE
                             net.writeInt16(index);
-                            net.writeInt16(amount);
+                            net.writeInt32(amount);
                         } break;
                         case "npc_talk": {
                             int npcId = args.arg(2).toint();
-                            net.writeInt16(0x0090); // CMSG_NPC_TALK
+                            net.sendPacket(0x0090); // CMSG_NPC_TALK
                             net.writeInt32(npcId);
                             net.writeInt8(0);
                         } break;
                         case "npc_buy_sell": {
                             int npcId = args.arg(2).toint();
                             boolean buy_sell = args.arg(3).toboolean(); // true for selling
-                            net.writeInt16(0x00C5); // CMSG_NPC_BUY_SELL_REQUEST
+                            net.sendPacket(0x00C5); // CMSG_NPC_BUY_SELL_REQUEST
                             net.writeInt32(npcId);
                             net.writeInt8( buy_sell ? 1 : 0 );
                         } break;
@@ -430,35 +439,35 @@ public class bot {
                             int itemId = args.arg(3).toint();
                             int amount = args.arg(4).toint();
                             if(amount < 1) amount = 1;
-                            net.writeInt16(0x00C8); // CMSG_NPC_BUY_REQUEST
+                            net.sendPacket(0x00C8); // CMSG_NPC_BUY_REQUEST
                             net.writeInt16(8); // one item (length of packet)
                             net.writeInt16(amount);
                             net.writeInt16(itemId);
                         } break;
                         case "npc_sell_item": {
                             int npcId = args.arg(2).toint();
-                            int itemId = args.arg(3).toint();
+                            int index = args.arg(3).toint();
                             int amount = args.arg(4).toint();
                             if(amount < 1) amount = 1;
-                            net.writeInt16(0x00C9); // CMSG_NPC_SELL_REQUEST
+                            net.sendPacket(0x00C9); // CMSG_NPC_SELL_REQUEST
                             net.writeInt16(8);
-                            net.writeInt16(itemId);
+                            net.writeInt16(index);
                             net.writeInt16(amount);
                         } break;
                         case "npc_next": {
                             int npcId = args.arg(2).toint();
-                            net.writeInt16(0x00B9); // CMSG_NPC_NEXT_REQUEST
+                            net.sendPacket(0x00B9); // CMSG_NPC_NEXT_REQUEST
                             net.writeInt32(npcId);
                         } break;
                         case "npc_close": {
                             int npcId = args.arg(2).toint();
-                            net.writeInt16(0x0146); // CMSG_NPC_CLOSE
+                            net.sendPacket(0x0146); // CMSG_NPC_CLOSE
                             net.writeInt32(npcId);
                         } break;
                         case "npc_choise": {
                             int npcId = args.arg(2).toint();
                             int choise = args.arg(3).toint();
-                            net.writeInt16(0x00B8); // CMSG_LIST_CHOISE
+                            net.sendPacket(0x00B8); // CMSG_LIST_CHOISE
                             net.writeInt32(npcId);
                             net.writeInt8(choise);
                         } break;
@@ -466,7 +475,7 @@ public class bot {
                             int npcId = args.arg(2).toint();
                             int value = args.arg(3).toint();
                             if(args.arg(3).isnil()) value = 0;
-                            net.writeInt16(0x0143); // CMSG_NPC_INT_RESPONSE
+                            net.sendPacket(0x0143); // CMSG_NPC_INT_RESPONSE
                             net.writeInt32(npcId);
                             net.writeInt32(value);
                         } break;
@@ -474,20 +483,20 @@ public class bot {
                             int npcId = args.arg(2).toint();
                             String value = args.arg(3).toString();
                             if(args.arg(3).isnil()) value = "";
-                            net.writeInt16(0x01D5); // CMSG_NPC_STR_RESPONSE
+                            net.sendPacket(0x01D5); // CMSG_NPC_STR_RESPONSE
                             net.writeInt16(value.length() + 9);
                             net.writeInt32(npcId);
                             net.writeString(value.length() + 1, value);
                         } break;
                         case "attack": {
                             int id = args.arg(2).toint();
-                            net.writeInt16(0x0089); // CMSG_PLAYER_ATTACK
+                            net.sendPacket(0x0089); // CMSG_PLAYER_ATTACK
                             net.writeInt32(id);
                             net.writeInt8(0);
                         } break;
                         case "emote": {
                             int emoteId = args.arg(2).toint();
-                            net.writeInt16(0x00BF); // CMSG_PLAYER_EMOTE
+                            net.sendPacket(0x00BF); // CMSG_PLAYER_EMOTE
                             net.writeInt8(emoteId);
                         } break;
                         case "increase_attribute": {
@@ -502,23 +511,23 @@ public class bot {
                                 case "luk": attr = 5; break;
                             }
                             if(attr == -1) break;
-                            net.writeInt16(0x00BB); // CMSG_STAT_UPDATE_REQUEST
+                            net.sendPacket(0x00BB); // CMSG_STAT_UPDATE_REQUEST
                             net.writeInt16(attr);
                             net.writeInt8(1);
                         } break;
                         case "increase_skill": {
                             int skillId = args.arg(2).toint();
-                            net.writeInt16(0x0112); // CMSG_SKILL_LEVELUP_REQUEST
+                            net.sendPacket(0x0112); // CMSG_SKILL_LEVELUP_REQUEST
                             net.writeInt16(skillId);
                         } break;
                         case "pickup": {
                             int id = args.arg(2).toint();
-                            net.writeInt16(0x009F); // CMSG_ITEM_PICKUP
+                            net.sendPacket(0x009F); // CMSG_ITEM_PICKUP
                             net.writeInt32(id);
                         } break;
                         case "turn": {
                             int dir = args.arg(2).toint();
-                            net.writeInt16(0x009B); // CMSG_PLAYER_CHANGE_DIR
+                            net.sendPacket(0x009B); // CMSG_PLAYER_CHANGE_DIR
                             net.writeInt16(0);
                             net.writeInt8(dir);
                         } break;
@@ -528,47 +537,51 @@ public class bot {
                             if(act.equals("sit")) type = 2;
                             else if(act.equals("stand")) type = 3;
                             else break;
-                            net.writeInt16(0x0089); // CMSG_PLAYER_CHANGE_ACT
+                            net.sendPacket(0x0089); // CMSG_PLAYER_CHANGE_ACT
                             net.writeInt32(0);
                             net.writeInt8(type);
                         } break;
                         case "respawn": {
-                            net.writeInt16(0x00B2); // CMSG_PLAYER_RESTART
+                            net.sendPacket(0x00B2); // CMSG_PLAYER_RESTART
                             net.writeInt8(0);
                         } break;
                         case "trade_request": {
                             int id = args.arg(2).toint();
-                            net.writeInt16(0x00E4); // CMSG_TRADE_REQUEST
+                            net.sendPacket(0x00E4); // CMSG_TRADE_REQUEST
                             net.writeInt32(id);
                         } break;
                         case "trade_response": {
                             boolean accept = args.arg(2).toboolean();
-                            net.writeInt16(0x00E6); // CMSG_TRADE_RESPONSE
+                            net.sendPacket(0x00E6); // CMSG_TRADE_RESPONSE
                             net.writeInt8(accept ? 3 : 4);
                         } break;
                         case "trade_add": {
                             int index = args.arg(2).toint();
                             int amount = args.arg(3).toint();
-                            net.writeInt16(0x00E8); // CMSG_TRADE_ITEM_ADD_REQUEST
+                            net.sendPacket(0x00E8); // CMSG_TRADE_ITEM_ADD_REQUEST
                             net.writeInt16(index);
                             net.writeInt32(amount);
                         } break;
                         case "trade_set_money": {
                             int amount = args.arg(3).toint();
-                            net.writeInt16(0x00E8); // CMSG_TRADE_ITEM_ADD_REQUEST
+                            net.sendPacket(0x00E8); // CMSG_TRADE_ITEM_ADD_REQUEST
                             net.writeInt16(0);
                             net.writeInt32(amount);
                         } break;
                         case "trade_confirm": {
-                            net.writeInt16(0x00EB); // CMSG_TRADE_ADD_COMPLETE
+                            net.sendPacket(0x00EB); // CMSG_TRADE_ADD_COMPLETE
                         } break;
                         case "trade_finish": {
-                            net.writeInt16(0x00EF); // CMSG_TRADE_OK
+                            net.sendPacket(0x00EF); // CMSG_TRADE_OK
                         } break;
                         case "trade_cancel": {
-                            net.writeInt16(0x00ED); // CMSG_TRADE_CANCEL
+                            net.sendPacket(0x00ED); // CMSG_TRADE_CANCEL
                         } break;
+                        default:
+                            writeLock.release();
+                            return NIL;
                     }
+                    net.checkSentPacketLength();
                 } catch(IOException e) {
                     e.printStackTrace();
                     System.exit(1);
@@ -581,9 +594,7 @@ public class bot {
 
                 return NIL;
             }
-        };
-
-        globals.set("send_packet", sendPacket);
+        });
 
         Thread reader = new Thread(new Runnable() {
             @Override
@@ -618,19 +629,19 @@ public class bot {
                                 being.set("stun_mode", stunMode);
                                 being.set("status_effects", statusEffects);
                                 being.set("hair_style", net.readInt16());
-                                being.set("eq_weapon", net.readInt16());
-                                being.set("eq_legs", net.readInt16()); //headbottom
+                                being.set("weapon", net.readInt16());
+                                being.set("legs", net.readInt16()); //headbottom
 
                                 if(packet == 0x007B) {
                                     net.skip(4);
                                 }
 
-                                being.set("eq_shield", net.readInt16());
-                                being.set("eq_head", net.readInt16()); //headtop
-                                being.set("eq_torso", net.readInt16()); //headmid
+                                being.set("shield", net.readInt16());
+                                being.set("helmet", net.readInt16()); //headtop
+                                being.set("armor", net.readInt16()); //headmid
                                 being.set("hair_color", net.readInt16());
-                                being.set("eq_shoes", net.readInt16());
-                                being.set("eq_gloves", net.readInt16());
+                                being.set("boots", net.readInt16());
+                                being.set("gloves", net.readInt16());
                                 being.set("guild", net.readInt32());
                                 net.skip(4);
                                 being.set("status_effect_block", net.readInt16());
@@ -644,6 +655,7 @@ public class bot {
                                 net.skip(5);
                                 if(!being.get("action").toString().equals("dead")) being.set("action", "stand");
                                 being_update_path(being);
+                                System.out.println("id="+id+" stun_mode="+stunMode+" status_effects="+statusEffects+" status_effect_block="+being.get("status_effect_block"));
                                 packetHandler.call(valueOf("being_update"), valueOf(id));
                             } break;
                             case 0x0095: { // SMSG_BEING_NAME_RESPONSE (30)
@@ -832,49 +844,49 @@ public class bot {
                                         being.set("hair_type", id);
                                     break;
                                     case 2:
-                                        typeStr = "eq_weapon+eq_shield";
-                                        being.set("eq_weapon", id);
-                                        being.set("eq_shield", id2);
+                                        typeStr = "weapon+shield";
+                                        being.set("weapon", id);
+                                        being.set("shield", id2);
                                     break;
                                     case 3:
-                                        typeStr = "eq_legs";
-                                        being.set("eq_legs", id);
+                                        typeStr = "legs";
+                                        being.set("legs", id);
                                     break;
                                     case 4:
-                                        typeStr = "eq_head";
-                                        being.set("eq_head", id);
+                                        typeStr = "helmet";
+                                        being.set("helmet", id);
                                     break;
                                     case 5:
-                                        typeStr = "eq_torso";
-                                        being.set("eq_torso", id);
+                                        typeStr = "armor";
+                                        being.set("armor", id);
                                     break;
                                     case 6:
                                         typeStr = "hair_color";
                                         being.set("hair_color", id);
                                     break;
                                     case 8:
-                                        typeStr = "eq_shield";
-                                        being.set("eq_shield", id);
+                                        typeStr = "shield";
+                                        being.set("shield", id);
                                     break;
                                     case 9:
-                                        typeStr = "eq_shoes";
-                                        being.set("eq_shoes", id);
+                                        typeStr = "boots";
+                                        being.set("boots", id);
                                     break;
                                     case 10:
-                                        typeStr = "eq_gloves";
-                                        being.set("eq_gloves", id);
+                                        typeStr = "gloves";
+                                        being.set("gloves", id);
                                     break;
                                     case 11:
-                                        typeStr = "eq_cape";
-                                        being.set("eq_cape", id);
+                                        typeStr = "cape";
+                                        being.set("cape", id);
                                     break;
                                     case 12:
-                                        typeStr = "eq_misc1";
-                                        being.set("eq_misc1", id);
+                                        typeStr = "misc1";
+                                        being.set("misc1", id);
                                     break;
                                     case 13:
-                                        typeStr = "eq_misc2";
-                                        being.set("eq_misc2", id);
+                                        typeStr = "misc2";
+                                        being.set("misc2", id);
                                     break;
                                 }
                                 packetHandler.call(
@@ -934,20 +946,21 @@ public class bot {
                                 being.set("speed", speed);
                                 being.set("stun_mode", stunMode);
                                 being.set("status_effects", statusEffects);
+                                System.out.println("id="+id+" stun_mode="+stunMode+" status_effects="+statusEffects);
                                 being.set("hair_style", net.readInt16());
-                                being.set("eq_weapon", net.readInt16());
-                                being.set("eq_shield", net.readInt16());
-                                being.set("eq_legs", net.readInt16());
+                                being.set("weapon", net.readInt16());
+                                being.set("shield", net.readInt16());
+                                being.set("legs", net.readInt16());
 
                                 if(packet == 0x01DA) {
                                     net.skip(4);
                                 }
 
-                                being.set("eq_head", net.readInt16());
-                                being.set("eq_torso", net.readInt16());
+                                being.set("helmet", net.readInt16());
+                                being.set("armor", net.readInt16());
                                 being.set("hair_color", net.readInt16());
-                                being.set("eq_shoes", net.readInt16());
-                                being.set("eq_gloves", net.readInt16());
+                                being.set("boots", net.readInt16());
+                                being.set("gloves", net.readInt16());
                                 net.skip(8);
                                 being.set("status_effect_block", net.readInt16());
                                 net.skip(1);
@@ -1011,6 +1024,7 @@ public class bot {
                                 statusEffects |= net.readInt16() << 16;
                                 being.set("status_effects", statusEffects);
                                 net.skip(1);
+                                System.out.println("id="+id+" stun_mode="+being.get("stun_mode")+" status_effects="+statusEffects);
                                 packetHandler.call(
                                     valueOf("player_update"),
                                     valueOf(id)
@@ -1091,13 +1105,10 @@ public class bot {
                             case 0x01EE: // SMSG_PLAYER_INVENTORY
                             case 0x01F0: { // SMSG_PLAYER_STORAGE_ITEMS
                                 if(packet == 0x01EE) {
-                                    inventory = new LuaTable();
-                                    globals.set("inventory", inventory);
-                                    equipment = new LuaTable();
-                                    globals.set("equipment", equipment);
+                                    Utils.clearTable(inventory);
+                                    Utils.clearTable(equipment);
                                 } else {
-                                    storage = new LuaTable();
-                                    globals.set("storage", storage);
+                                    Utils.clearTable(storage);
                                 }
                                 int number = (net.getPacketLength() - 4) / 18;
                                 for(int i=0; i!=number; ++i) {
@@ -1231,7 +1242,7 @@ public class bot {
                             } break;
                             case 0x00F4: { // SMSG_PLAYER_STORAGE_ADD
                                 int index = net.readInt16();
-                                int amount = net.readInt16();
+                                int amount = net.readInt32();
                                 LuaTable item = new LuaTable();
                                 item.set("index", index);
                                 item.set("amount", amount);
@@ -1254,7 +1265,7 @@ public class bot {
                             } break;
                             case 0x00F6: { // SMSG_PLAYER_STORAGE_REMOVE
                                 int index = net.readInt16();
-                                int amount = net.readInt16();
+                                int amount = net.readInt32();
                                 LuaValue item = storage.get(index);
                                 if(item != NIL) {
                                     item.set("amount", item.get("amount").toint() - amount);
@@ -1268,8 +1279,7 @@ public class bot {
                                 packetHandler.call(valueOf("storage_close"));
                             } break;
                             case 0x00A4: { // SMSG_PLAYER_EQUIPMENT
-                                equipment = new LuaTable();
-                                globals.set("equipment", equipment);
+                                Utils.clearTable(equipment);
                                 int number = (net.getPacketLength() - 4) / 20;
                                 for(int i=0; i!=number; ++i) {
                                     int index = net.readInt16();
@@ -1331,7 +1341,7 @@ public class bot {
                                         item.set("equip", NIL);
                                         equipment.set(index, NIL);
                                         inventory.set(index, item);
-                                        character.set("attack_range", -1);
+                                        character.set("range", NIL);
                                     }
                                 }
                                 packetHandler.call(
@@ -1341,7 +1351,7 @@ public class bot {
                                 );
                             } break;
                             case 0x013A: { // SMSG_PLAYER_ATTACK_RANGE
-                                character.set("attack_range", net.readInt16());
+                                character.set("range", net.readInt16());
                                 packetHandler.call(valueOf("char_update"));
                             } break;
                             case 0x013C: { // SMSG_PLAYER_ARROW_EQUIP
@@ -1364,8 +1374,7 @@ public class bot {
                             } break;
                             case 0x00C6: { // SMSG_NPC_BUY
                                 int count = (net.getPacketLength() - 4) / 11;
-                                buy_sell = new LuaTable();
-                                globals.set("buy_sell", buy_sell);
+                                Utils.clearTable(buy_sell);
                                 for(int i=0; i!=count; ++i) {
                                     int value = net.readInt32();
                                     net.skip(4); // dcvalue (?)
@@ -1382,15 +1391,20 @@ public class bot {
                             } break;
                             case 0x00C7: { // SMSG_NPC_SELL
                                 int count = (net.getPacketLength() - 4) / 10;
-                                buy_sell = new LuaTable();
-                                globals.set("buy_sell", buy_sell);
+                                Utils.clearTable(buy_sell);
                                 for(int i=0; i!=count; ++i) {
                                     int index = net.readInt16();
                                     int value = net.readInt32();
                                     net.skip(4); // ocvalue
                                     LuaValue item = inventory.get(index);
                                     if(item != NIL) {
-                                        buy_sell.set(i+1, item);
+                                        LuaTable sitem = new LuaTable();
+                                        sitem.set("id", item.get("id"));
+                                        sitem.set("name", item.get("name"));
+                                        sitem.set("index", item.get("index"));
+                                        sitem.set("amount", item.get("amount"));
+                                        sitem.set("value", value);
+                                        buy_sell.set(index, sitem);
                                     }
                                 }
                                 packetHandler.call(valueOf("sell_items"));
@@ -1475,11 +1489,9 @@ public class bot {
 //                                net.skip(1);
                             } break;
                             case 0x0091: { // SMSG_PLAYER_WARP
-                                beings = new LuaTable();
+                                Utils.clearTable(beings);
                                 beings.set(character.get("id"), character);
-                                globals.set("beings", beings);
-                                items = new LuaTable();
-                                globals.set("items", items);
+                                Utils.clearTable(items);
 
                                 String dstMap = net.readString(16);
                                 int x = net.readInt16();
@@ -1506,14 +1518,14 @@ public class bot {
                                     case 0x0000: character.set("speed", value); break;
                                     case 0x0004: break; // manner
                                     case 0x0005: character.set("hp", value); break;
-                                    case 0x0006: character.set("max_hp", value); break;
+                                    case 0x0006: character.set("hp_max", value); break;
                                     case 0x0007: character.set("mp", value); break;
-                                    case 0x0008: character.set("max_mp", value); break;
+                                    case 0x0008: character.set("mp_max", value); break;
                                     case 0x0009: character.set("char_points", value); break;
                                     case 0x000B: character.set("level", value); break;
                                     case 0x000C: character.set("skill_points", value); break;
-                                    case 0x0018: character.set("total_weight", value); break;
-                                    case 0x0019: character.set("max_weight", value); break;
+                                    case 0x0018: character.set("weight", value); break;
+                                    case 0x0019: character.set("weight_max", value); break;
                                     case 0x0029: character.set("attack_base", value); break;
                                     case 0x002A: character.set("attack_mod", value); break;
                                     case 0x002B: character.set("mattack_base", value); break;
@@ -1523,13 +1535,14 @@ public class bot {
                                     case 0x002F: character.set("mdefence_base", value); break;
                                     case 0x0030: character.set("mdefence_mod", value); break;
                                     case 0x0031: character.set("hit", value); break;
-                                    case 0x0032: character.set("flee_base", value); break;
-                                    case 0x0033: character.set("flee_mod", value); break;
+                                    case 0x0032: character.set("evasion_base", value); break;
+                                    case 0x0033: character.set("evasion_mod", value); break;
                                     case 0x0034: character.set("critical", value); break;
                                     case 0x0035: character.set("attack_speed", value); break;
                                     case 0x0037: character.set("job_base", value); break;
                                     case 500: character.set("gm_level", value); break;
                                 }
+                                update_character_stats();
                                 packetHandler.call(valueOf("char_update"));
                             } break;
                             case 0x00B1: { // SMSG_PLAYER_STAT_UPDATE_2
@@ -1539,8 +1552,8 @@ public class bot {
                                     case 0x0001: character.set("exp", value); break;
                                     case 0x0002: character.set("job_exp", value); break;
                                     case 0x0014: character.set("money", value); break;
-                                    case 0x0016: character.set("exp_needed", value); break;
-                                    case 0x0017: character.set("job_mod", value); break;
+                                    case 0x0016: character.set("exp_need", value); break;
+                                    case 0x0017: character.set("job_need", value); break;
                                 }
                                 packetHandler.call(valueOf("char_update"));
                             } break;
@@ -1550,30 +1563,31 @@ public class bot {
                                 int bonus = net.readInt32();
                                 switch(type) {
                                     case 0:
-                                        character.set("st_str", base);
-                                        character.set("st_str_mod", bonus);
+                                        character.set("str_base", base);
+                                        character.set("str_mod", bonus);
                                     break;
                                     case 1:
-                                        character.set("st_agi", base);
-                                        character.set("st_agi_mod", bonus);
+                                        character.set("agi_base", base);
+                                        character.set("agi_mod", bonus);
                                     break;
                                     case 2:
-                                        character.set("st_vit", base);
-                                        character.set("st_vit_mod", bonus);
+                                        character.set("vit_base", base);
+                                        character.set("vit_mod", bonus);
                                     break;
                                     case 3:
-                                        character.set("st_int", base);
-                                        character.set("st_int_mod", bonus);
+                                        character.set("int_base", base);
+                                        character.set("int_mod", bonus);
                                     break;
                                     case 4:
-                                        character.set("st_dex", base);
-                                        character.set("st_dex_mod", bonus);
+                                        character.set("dex_base", base);
+                                        character.set("dex_mod", bonus);
                                     break;
                                     case 5:
-                                        character.set("st_luk", base);
-                                        character.set("st_luk_mod", bonus);
+                                        character.set("luk_base", base);
+                                        character.set("luk_mod", bonus);
                                     break;
                                 }
+                                update_character_stats();
                                 packetHandler.call(valueOf("char_update"));
                             } break;
                             case 0x00BC: { // SMSG_PLAYER_STAT_UPDATE_4
@@ -1582,30 +1596,31 @@ public class bot {
                                 int value = net.readInt8();
                                 if(ok == 1) {
                                     switch(type) {
-                                        case 0: character.set("st_str", value); break;
-                                        case 1: character.set("st_agi", value); break;
-                                        case 2: character.set("st_vit", value); break;
-                                        case 3: character.set("st_int", value); break;
-                                        case 4: character.set("st_dex", value); break;
-                                        case 5: character.set("st_luk", value); break;
+                                        case 0: character.set("str_base", value); break;
+                                        case 1: character.set("agi_base", value); break;
+                                        case 2: character.set("vit_base", value); break;
+                                        case 3: character.set("int_base", value); break;
+                                        case 4: character.set("dex_base", value); break;
+                                        case 5: character.set("luk_base", value); break;
                                     }
+                                    update_character_stats();
                                 }
                                 packetHandler.call(valueOf("char_update"));
                             } break;
                             case 0x00BD: { // SMSG_PLAYER_STAT_UPDATE_5
                                 character.set("char_points", net.readInt16());
-                                character.set("st_str", net.readInt8());
-                                character.set("st_str_need", net.readInt8());
-                                character.set("st_agi", net.readInt8());
-                                character.set("st_agi_need", net.readInt8());
-                                character.set("st_vit", net.readInt8());
-                                character.set("st_vit_need", net.readInt8());
-                                character.set("st_int", net.readInt8());
-                                character.set("st_int_need", net.readInt8());
-                                character.set("st_dex", net.readInt8());
-                                character.set("st_dex_need", net.readInt8());
-                                character.set("st_luk", net.readInt8());
-                                character.set("st_luk_need", net.readInt8());
+                                character.set("str_base", net.readInt8());
+                                character.set("str_need", net.readInt8());
+                                character.set("agi_base", net.readInt8());
+                                character.set("agi_need", net.readInt8());
+                                character.set("vit_base", net.readInt8());
+                                character.set("vit_need", net.readInt8());
+                                character.set("int_base", net.readInt8());
+                                character.set("int_need", net.readInt8());
+                                character.set("dex_base", net.readInt8());
+                                character.set("dex_need", net.readInt8());
+                                character.set("luk_base", net.readInt8());
+                                character.set("luk_need", net.readInt8());
                                 character.set("attack_base", net.readInt16());
                                 character.set("attack_mod", net.readInt16());
                                 character.set("mattack_base", net.readInt16());
@@ -1615,31 +1630,32 @@ public class bot {
                                 character.set("mdefence_base", net.readInt16());
                                 character.set("mdefence_mod", net.readInt16());
                                 character.set("hit", net.readInt16());
-                                character.set("flee_base", net.readInt16());
-                                character.set("flee_mod", net.readInt16());
+                                character.set("evasion_base", net.readInt16());
+                                character.set("evasion_mod", net.readInt16());
                                 character.set("critical", net.readInt16());
                                 net.skip(4); // karma, manner
+                                update_character_stats();
                                 packetHandler.call(valueOf("char_update"));
                             } break;
                             case 0x00BE: { // SMSG_PLAYER_STAT_UPDATE_6
                                 int type = net.readInt16();
                                 int value = net.readInt8();
                                 switch(type) {
-                                    case 0x0020: character.set("st_str_need", value); break;
-                                    case 0x0021: character.set("st_agi_need", value); break;
-                                    case 0x0022: character.set("st_vit_need", value); break;
-                                    case 0x0023: character.set("st_int_need", value); break;
-                                    case 0x0024: character.set("st_dex_need", value); break;
-                                    case 0x0025: character.set("st_luk_need", value); break;
+                                    case 0x0020: character.set("str_need", value); break;
+                                    case 0x0021: character.set("agi_need", value); break;
+                                    case 0x0022: character.set("vit_need", value); break;
+                                    case 0x0023: character.set("int_need", value); break;
+                                    case 0x0024: character.set("dex_need", value); break;
+                                    case 0x0025: character.set("luk_need", value); break;
                                 }
+                                update_character_stats();
                                 packetHandler.call(valueOf("char_update"));
                             } break;
                             case 0x013B: { // SMSG_PLAYER_ARROW_MESSAGE
                                 int type = net.readInt16();
                             } break;
                             case 0x010F: { // SMSG_PLAYER_SKILLS
-                                skills = new LuaTable();
-                                globals.set("skills", skills);
+                                Utils.clearTable(skills);
                                 int count = (net.getPacketLength() - 4) / 37;
                                 for(int i=0; i!=count; ++i) {
                                     int id = net.readInt16();
@@ -1683,10 +1699,8 @@ public class bot {
                                     case 3: result = "ok"; break;
                                     case 4: result = "cancel"; break;
                                 }
-                                trade_buy = new LuaTable();
-                                trade_sell = new LuaTable();
-                                globals.set("trade_buy", trade_buy);
-                                globals.set("trade_sell", trade_sell);
+                                Utils.clearTable(trade_buy);
+                                Utils.clearTable(trade_sell);
                                 packetHandler.call(valueOf("trade_response"), valueOf(result));
                             } break;
                             case 0x00E9: { // SMSG_TRADE_ITEM_ADD
@@ -1749,10 +1763,8 @@ public class bot {
                                 packetHandler.call(valueOf("trade_confirm"), valueOf(net.readInt8()));
                             } break;
                             case 0x00EE: { // SMSG_TRADE_CANCEL
-                                trade_buy = new LuaTable();
-                                trade_sell = new LuaTable();
-                                globals.set("trade_buy", trade_buy);
-                                globals.set("trade_sell", trade_sell);
+                                Utils.clearTable(trade_buy);
+                                Utils.clearTable(trade_sell);
                                 packetHandler.call(valueOf("trade_cancel"));
                             } break;
                             case 0x00F0: { // SMSG_TRADE_COMPLETE
@@ -1779,10 +1791,8 @@ public class bot {
                                         }
                                     }
                                 }
-                                trade_buy = new LuaTable();
-                                trade_sell = new LuaTable();
-                                globals.set("trade_buy", trade_buy);
-                                globals.set("trade_sell", trade_sell);
+                                Utils.clearTable(trade_buy);
+                                Utils.clearTable(trade_sell);
                                 packetHandler.call(valueOf("trade_complete"), valueOf(result));
                             } break;
                             default:

@@ -12,12 +12,14 @@ import org.luaj.vm2.LuaValue;
 import org.luaj.vm2.LuaTable;
 
 public class Net {
-    public static Map<Integer, Integer> packetLength = new HashMap<Integer, Integer>();
+    public static int packetLength[];
 
     Socket sock;
 
     int packet = -1;
-    int packet_bytes = 0;
+    int recv_bytes = 0;
+    int send_packet = -1;
+    int send_bytes = 0;
     int length = -2;
 
     public Net() { }
@@ -56,7 +58,7 @@ public class Net {
 
     public int readPacket() throws IOException {
         length = -2;
-        packet_bytes = 0;
+        recv_bytes = 0;
         packet = readInt16();
         System.out.append("readpacket ");
         Utils.printHexInt16(packet);
@@ -68,27 +70,43 @@ public class Net {
         return packet;
     }
 
-    public int getPacketBytes() {
-        return packet_bytes;
+    public void sendPacket(int p) throws IOException {
+        send_bytes = 0;
+        send_packet = p;
+        writeInt16(p);
     }
 
-    public int getPacketLength() throws IOException {
-        if(length != -2) return length;
-        if(packetLength.containsKey(packet)) {
-            return packetLength.get(packet);
+    public int getRecvBytes() {
+        return recv_bytes;
+    }
+
+    public int getSendBytes() {
+        return send_bytes;
+    }
+
+    public int getPacketLength(int p) throws IOException {
+        if(p == 0x7530) return 2;
+        if(p == 0x7531) return 10;
+        if(p < packetLength.length && packetLength[p] != 0) {
+            return packetLength[p];
         }
         System.out.append("unknown packet ");
-        Utils.printHexInt16(packet);
+        Utils.printHexInt16(p);
         System.out.println();
         readHex();
         System.exit(1);
         return -2;
     }
 
+    public int getPacketLength() throws IOException {
+        if(length != -2) return length;
+        return getPacketLength(packet);
+    }
+
     public void checkExceedLength() throws IOException {
         if(packet != -1) {
             int len = getPacketLength();
-            if(len > -1 && packet_bytes >= len) {
+            if(len > -1 && recv_bytes >= len) {
                 Utils.printHexInt16(packet);
                 System.out.println(" packet length exceeded!");
                 System.exit(1);
@@ -99,9 +117,9 @@ public class Net {
     public void checkPacketLength() throws IOException {
         if(packet != -1) {
             int len = getPacketLength();
-            if(packet_bytes != len) {
+            if(recv_bytes != len) {
                 Utils.printHexInt16(packet);
-                System.out.println(" packet lengths mismatch! pb="+packet_bytes+" len="+len);
+                System.out.println(" packet lengths mismatch! pb="+recv_bytes+" len="+len);
                 System.exit(1);
             }
         }
@@ -109,11 +127,20 @@ public class Net {
         length = -2;
     }
 
+    public void checkSentPacketLength() throws IOException {
+        int len = getPacketLength(send_packet);
+        if(len != -1 && send_bytes != len) {
+            Utils.printHexInt16(send_packet);
+            System.out.println(" packet lengths mismatch! (send) pb="+send_bytes+" len="+len);
+            System.exit(1);
+        }
+    }
+
     public void skipPacket() throws IOException {
         int len = getPacketLength();
-        if(packet_bytes == len) return;
-        skip(len - packet_bytes);
-        packet_bytes = len;
+        if(recv_bytes == len) return;
+        skip(len - recv_bytes);
+        recv_bytes = len;
     }
 
     public void readHex() throws IOException {
@@ -125,13 +152,13 @@ public class Net {
     public void skip(int n) throws IOException {
         checkExceedLength();
         sock.getInputStream().skip(n);
-        packet_bytes += n;
+        recv_bytes += n;
     }
 
     public int readInt8() throws IOException {
         checkExceedLength();
         int b = sock.getInputStream().read();
-        ++packet_bytes;
+        ++recv_bytes;
         if(b == -1) throw new IOException("socket closed");
         return b;
     }
@@ -154,7 +181,7 @@ public class Net {
         checkExceedLength();
         StringBuilder sb = new StringBuilder();
         boolean append = true;
-        packet_bytes += len;
+        recv_bytes += len;
         for(; len>0; --len) {
             char c = (char)sock.getInputStream().read();
             if(c == 0) append = false;
@@ -165,11 +192,13 @@ public class Net {
 
     public void writeInt8(int b) throws IOException {
         sock.getOutputStream().write(b);
+        ++send_bytes;
     }
 
     public void writeInt16(int v) throws IOException {
         sock.getOutputStream().write( v & 255 );
         sock.getOutputStream().write( (v>>8) & 255 );
+        send_bytes += 2;
     }
 
     public void writeInt32(int v) throws IOException {
@@ -177,6 +206,7 @@ public class Net {
         sock.getOutputStream().write( (v>>8) & 255 );
         sock.getOutputStream().write( (v>>16) & 255 );
         sock.getOutputStream().write( (v>>24) & 255 );
+        send_bytes += 4;
     }
 
     public void writeString(int len, String str) throws IOException {
@@ -185,6 +215,7 @@ public class Net {
             if(i < b.length) sock.getOutputStream().write(b[i]);
             else sock.getOutputStream().write(0);
         }
+        send_bytes += len;
     }
 
     public void writeCoordinates(int x, int y, int dir) throws IOException {
@@ -312,38 +343,38 @@ public class Net {
             b.character.set("exp", readInt32());
             b.character.set("money", readInt32());
             b.character.set("job_exp", readInt32());
-            int temp = readInt32();
-            b.character.set("job_base", temp);
-            b.character.set("job_mod", temp);
-            b.character.set("eq_shoes", readInt16());
-            b.character.set("eq_gloves", readInt16());
-            b.character.set("eq_cape", readInt16());
-            b.character.set("eq_misc1", readInt16());
-            skip(14);
+            b.character.set("job_level", readInt32());
+            b.character.set("boots", readInt16());
+            b.character.set("gloves", readInt16());
+            b.character.set("cape", readInt16());
+            b.character.set("misc1", readInt16());
+            skip(12); // (2) option, (2) unused, (4) karma, (4) manner
+            b.character.set("char_points", readInt16());
             b.character.set("hp", readInt16());
-            b.character.set("max_hp", readInt16());
+            b.character.set("hp_max", readInt16());
             b.character.set("mp", readInt16());
-            b.character.set("max_mp", readInt16());
-            skip(2);
+            b.character.set("mp_max", readInt16());
+            b.character.set("speed", readInt16());
             b.character.set("race", readInt16());
             b.character.set("hair_style", readInt16());
-            b.character.set("eq_weapon", readInt16());
+            b.character.set("weapon", readInt16());
             b.character.set("level", readInt16());
-            skip(2);
-            b.character.set("eq_legs", readInt16());
-            b.character.set("eq_shield", readInt16());
-            b.character.set("eq_head", readInt16());
-            b.character.set("eq_torso", readInt16());
+            b.character.set("skill_points", readInt16());
+            b.character.set("legs", readInt16());
+            b.character.set("shield", readInt16());
+            b.character.set("helmet", readInt16());
+            b.character.set("armor", readInt16());
             b.character.set("hair_color", readInt16());
-            b.character.set("eq_misc2", readInt16());
+            b.character.set("misc2", readInt16());
             b.character.set("name", readString(24));
-            b.character.set("st_str", readInt8());
-            b.character.set("st_agi", readInt8());
-            b.character.set("st_vit", readInt8());
-            b.character.set("st_int", readInt8());
-            b.character.set("st_dex", readInt8());
-            b.character.set("st_luk", readInt8());
-            skip(2);
+            b.character.set("str_base", readInt8());
+            b.character.set("agi_base", readInt8());
+            b.character.set("vit_base", readInt8());
+            b.character.set("int_base", readInt8());
+            b.character.set("dex_base", readInt8());
+            b.character.set("luk_base", readInt8());
+            skip(1); // char num
+            skip(1); // unused
 
             b.beings.set(b.character.get("id"), b.character);
 
@@ -388,346 +419,50 @@ public class Net {
     }
 
     static {
-        packetLength.put(0x0062, 3);
-        packetLength.put(0x0063, -1);
-        packetLength.put(0x0069, -1);
-        packetLength.put(0x006A, 23);
-        packetLength.put(0x006B, -1);
-        packetLength.put(0x006C, 3);
-        packetLength.put(0x006D, 108);
-        packetLength.put(0x006E, 3);
-        packetLength.put(0x006F, 2);
-        packetLength.put(0x0070, 3);
-        packetLength.put(0x0071, 28);
-        packetLength.put(0x0073, 11);
-        packetLength.put(0x0078, 54);
-        packetLength.put(0x007B, 60);
-        packetLength.put(0x007C, 41);
-        packetLength.put(0x007F, 6);
-        packetLength.put(0x0080, 7);
-        packetLength.put(0x0081, 3);
-        packetLength.put(0x0086, 16);
-        packetLength.put(0x0087, 12);
-        packetLength.put(0x0088, 10);
-        packetLength.put(0x008A, 29);
-        packetLength.put(0x008D, -1);
-        packetLength.put(0x008E, -1);
-        packetLength.put(0x0091, 22);
-        packetLength.put(0x0092, 28);
-        packetLength.put(0x0095, 30);
-        packetLength.put(0x0097, -1);
-        packetLength.put(0x0098, 3);
-        packetLength.put(0x009A, -1);
-        packetLength.put(0x009C, 9);
-        packetLength.put(0x009D, 17);
-        packetLength.put(0x009E, 17);
-        packetLength.put(0x00A0, 23);
-        packetLength.put(0x00A1, 6);
-        packetLength.put(0x00A4, -1);
-        packetLength.put(0x00A6, -1);
-        packetLength.put(0x00A8, 7);
-        packetLength.put(0x00AA, 7);
-        packetLength.put(0x00AC, 7);
-        packetLength.put(0x00AF, 6);
-        packetLength.put(0x00B0, 8);
-        packetLength.put(0x00B1, 8);
-        packetLength.put(0x00B3, 3);
-        packetLength.put(0x00B4, -1);
-        packetLength.put(0x00B5, 6);
-        packetLength.put(0x00B6, 6);
-        packetLength.put(0x00B7, -1);
-        packetLength.put(0x00BC, 6);
-        packetLength.put(0x00BD, 44);
-        packetLength.put(0x00BE, 5);
-        packetLength.put(0x00C0, 7);
-        packetLength.put(0x00C2, 6);
-        packetLength.put(0x00C3, 8);
-        packetLength.put(0x00C4, 6);
-        packetLength.put(0x00C6, -1);
-        packetLength.put(0x00C7, -1);
-        packetLength.put(0x00CA, 3);
-        packetLength.put(0x00CB, 3);
-        packetLength.put(0x00CD, 6);
-        packetLength.put(0x00E5, 26);
-        packetLength.put(0x00E7, 3);
-        packetLength.put(0x00E9, 19);
-        packetLength.put(0x00EC, 3);
-        packetLength.put(0x00EE, 2);
-        packetLength.put(0x00F0, 3);
-        packetLength.put(0x00F2, 6);
-        packetLength.put(0x00F4, 21);
-        packetLength.put(0x00F6, 8);
-        packetLength.put(0x00F8, 2);
-        packetLength.put(0x00FA, 3);
-        packetLength.put(0x00FB, -1);
-        packetLength.put(0x00FD, 27);
-        packetLength.put(0x00FE, 30);
-        packetLength.put(0x0101, 6);
-        packetLength.put(0x0104, 79);
-        packetLength.put(0x0105, 31);
-        packetLength.put(0x0106, 10);
-        packetLength.put(0x0107, 10);
-        packetLength.put(0x0109, -1);
-        packetLength.put(0x010C, 6);
-        packetLength.put(0x010E, 11);
-        packetLength.put(0x010F, -1);
-        packetLength.put(0x0110, 10);
-        packetLength.put(0x0119, 13);
-        packetLength.put(0x0139, 16);
-        packetLength.put(0x013A, 4);
-        packetLength.put(0x013B, 4);
-        packetLength.put(0x013C, 4);
-        packetLength.put(0x0141, 14);
-        packetLength.put(0x0142, 6);
-        packetLength.put(0x0148, 8);
-        packetLength.put(0x014C, -1);
-        packetLength.put(0x014E, 6);
-        packetLength.put(0x014E, 6);
-        packetLength.put(0x0152, -1);
-        packetLength.put(0x0154, -1);
-        packetLength.put(0x0156, -1);
-        packetLength.put(0x015A, 66);
-        packetLength.put(0x015C, 90);
-        packetLength.put(0x015E, 6);
-        packetLength.put(0x0160, -1);
-        packetLength.put(0x0162, -1);
-        packetLength.put(0x0163, -1);
-        packetLength.put(0x0166, -1);
-        packetLength.put(0x0167, 3);
-        packetLength.put(0x0169, 3);
-        packetLength.put(0x016A, 30);
-        packetLength.put(0x016C, 43);
-        packetLength.put(0x016D, 14);
-        packetLength.put(0x016F, 182);
-        packetLength.put(0x0171, 30);
-        packetLength.put(0x0173, 3);
-        packetLength.put(0x0174, -1);
-        packetLength.put(0x017F, -1);
-        packetLength.put(0x0181, 3);
-        packetLength.put(0x0184, 10);
-        packetLength.put(0x018B, 4);
-        packetLength.put(0x0195, 102);
-        packetLength.put(0x0196, 9);
-        packetLength.put(0x019B, 10);
-        packetLength.put(0x01B1, 7);
-        packetLength.put(0x01B6, 114);
-        packetLength.put(0x01C8, 13);
-        packetLength.put(0x01D4, 6);
-        packetLength.put(0x01D7, 11);
-        packetLength.put(0x01D8, 54);
-        packetLength.put(0x01D9, 53);
-        packetLength.put(0x01DA, 60);
-        packetLength.put(0x01DE, 33);
-        packetLength.put(0x01EE, -1);
-        packetLength.put(0x01F0, -1);
-        packetLength.put(0x020C, 10);
-        packetLength.put(0x7531, 10);
-
-        packetLength.put(0x0000, 10);
-        packetLength.put(0x0074, 3);
-        packetLength.put(0x0075, -1);
-        packetLength.put(0x0076, 9);
-        packetLength.put(0x0077, 5);
-        packetLength.put(0x0079, 53);
-        packetLength.put(0x007A, 58);
-        packetLength.put(0x0082, 2);
-        packetLength.put(0x0083, 2);
-        packetLength.put(0x0084, 2);
-        packetLength.put(0x008B, 23);
-        packetLength.put(0x0093, 2);
-        packetLength.put(0x00A3, -1);
-        packetLength.put(0x00A5, -1);
-        packetLength.put(0x00AE, -1);
-        packetLength.put(0x00BA, 2);
-        packetLength.put(0x00CE, 2);
-        packetLength.put(0x00CF, 27);
-        packetLength.put(0x00D0, 3);
-        packetLength.put(0x00D1, 4);
-        packetLength.put(0x00D2, 4);
-        packetLength.put(0x00D3, 2);
-        packetLength.put(0x00D4, -1);
-        packetLength.put(0x00D5, -1);
-        packetLength.put(0x00D6, 3);
-        packetLength.put(0x00D7, -1);
-        packetLength.put(0x00D8, 6);
-        packetLength.put(0x00D9, 14);
-        packetLength.put(0x00DA, 3);
-        packetLength.put(0x00DB, -1);
-        packetLength.put(0x00DC, 28);
-        packetLength.put(0x00DD, 29);
-        packetLength.put(0x00DE, -1);
-        packetLength.put(0x00DF, -1);
-        packetLength.put(0x00E0, 30);
-        packetLength.put(0x00E1, 30);
-        packetLength.put(0x00E2, 26);
-        packetLength.put(0x00E3, 2);
-        packetLength.put(0x00EA, 5);
-        packetLength.put(0x00F1, 2);
-        packetLength.put(0x010A, 4);
-        packetLength.put(0x010B, 6);
-        packetLength.put(0x010D, 2);
-        packetLength.put(0x0111, 39);
-        packetLength.put(0x0114, 31);
-        packetLength.put(0x0115, 35);
-        packetLength.put(0x0117, 18);
-        packetLength.put(0x0118, 2);
-        packetLength.put(0x011A, 15);
-        packetLength.put(0x011C, 68);
-        packetLength.put(0x011D, 2);
-        packetLength.put(0x011E, 3);
-        packetLength.put(0x011F, 16);
-        packetLength.put(0x0120, 6);
-        packetLength.put(0x0121, 14);
-        packetLength.put(0x0122, -1);
-        packetLength.put(0x0123, -1);
-        packetLength.put(0x0124, 21);
-        packetLength.put(0x0125, 8);
-        packetLength.put(0x0126, 8);
-        packetLength.put(0x0127, 8);
-        packetLength.put(0x0128, 8);
-        packetLength.put(0x0129, 8);
-        packetLength.put(0x012A, 2);
-        packetLength.put(0x012B, 2);
-        packetLength.put(0x012C, 3);
-        packetLength.put(0x012D, 4);
-        packetLength.put(0x012E, 2);
-        packetLength.put(0x012F, -1);
-        packetLength.put(0x0130, 6);
-        packetLength.put(0x0131, 86);
-        packetLength.put(0x0132, 6);
-        packetLength.put(0x0133, -1);
-        packetLength.put(0x0134, -1);
-        packetLength.put(0x0135, 7);
-        packetLength.put(0x0136, -1);
-        packetLength.put(0x0137, 6);
-        packetLength.put(0x0138, 3);
-        packetLength.put(0x013D, 6);
-        packetLength.put(0x013E, 24);
-        packetLength.put(0x013F, 26);
-        packetLength.put(0x0140, 22);
-        packetLength.put(0x0144, 23);
-        packetLength.put(0x0145, 19);
-        packetLength.put(0x0147, 39);
-        packetLength.put(0x014A, 6);
-        packetLength.put(0x014B, 27);
-        packetLength.put(0x0150, 110);
-        packetLength.put(0x0157, 6);
-        packetLength.put(0x0158, -1);
-        packetLength.put(0x015F, 42);
-        packetLength.put(0x0164, -1);
-        packetLength.put(0x0175, 6);
-        packetLength.put(0x0176, 106);
-        packetLength.put(0x0177, -1);
-        packetLength.put(0x0178, 4);
-        packetLength.put(0x0179, 5);
-        packetLength.put(0x017A, 4);
-        packetLength.put(0x017B, -1);
-        packetLength.put(0x017C, 6);
-        packetLength.put(0x017D, 7);
-        packetLength.put(0x0182, 106);
-        packetLength.put(0x0185, 34);
-        packetLength.put(0x0187, 6);
-        packetLength.put(0x0188, 8);
-        packetLength.put(0x0189, 4);
-        packetLength.put(0x018C, 29);
-        packetLength.put(0x018D, -1);
-        packetLength.put(0x018E, 10);
-        packetLength.put(0x018F, 6);
-        packetLength.put(0x0191, 86);
-        packetLength.put(0x0192, 24);
-        packetLength.put(0x0193, 6);
-        packetLength.put(0x0194, 30);
-        packetLength.put(0x0197, 4);
-        packetLength.put(0x0198, 8);
-        packetLength.put(0x0199, 4);
-        packetLength.put(0x019A, 14);
-        packetLength.put(0x019E, 2);
-        packetLength.put(0x019F, 6);
-        packetLength.put(0x01A0, 3);
-        packetLength.put(0x01A1, 3);
-        packetLength.put(0x01A2, 35);
-        packetLength.put(0x01A3, 5);
-        packetLength.put(0x01A4, 11);
-        packetLength.put(0x01A5, 26);
-        packetLength.put(0x01A6, -1);
-        packetLength.put(0x01A7, 4);
-        packetLength.put(0x01A8, 4);
-        packetLength.put(0x01A9, 6);
-        packetLength.put(0x01AA, 10);
-        packetLength.put(0x01AB, 12);
-        packetLength.put(0x01AC, 6);
-        packetLength.put(0x01AD, -1);
-        packetLength.put(0x01AE, 4);
-        packetLength.put(0x01AF, 4);
-        packetLength.put(0x01B0, 11);
-        packetLength.put(0x01B2, -1);
-        packetLength.put(0x01B3, 67);
-        packetLength.put(0x01B4, 12);
-        packetLength.put(0x01B5, 18);
-        packetLength.put(0x01B7, 6);
-        packetLength.put(0x01B8, 3);
-        packetLength.put(0x01B9, 6);
-        packetLength.put(0x01BA, 26);
-        packetLength.put(0x01BB, 26);
-        packetLength.put(0x01BC, 26);
-        packetLength.put(0x01BD, 26);
-        packetLength.put(0x01BE, 2);
-        packetLength.put(0x01BF, 3);
-        packetLength.put(0x01C0, 2);
-        packetLength.put(0x01C1, 14);
-        packetLength.put(0x01C2, 10);
-        packetLength.put(0x01C3, -1);
-        packetLength.put(0x01C4, 22);
-        packetLength.put(0x01C5, 22);
-        packetLength.put(0x01C6, 4);
-        packetLength.put(0x01C7, 2);
-        packetLength.put(0x01C9, 97);
-        packetLength.put(0x01CB, 9);
-        packetLength.put(0x01CC, 9);
-        packetLength.put(0x01CD, 29);
-        packetLength.put(0x01CE, 6);
-        packetLength.put(0x01CF, 28);
-        packetLength.put(0x01D0, 8);
-        packetLength.put(0x01D1, 14);
-        packetLength.put(0x01D2, 10);
-        packetLength.put(0x01D3, 35);
-        packetLength.put(0x01D6, 4);
-        packetLength.put(0x01DB, 2);
-        packetLength.put(0x01DC, -1);
-        packetLength.put(0x01DD, 47);
-        packetLength.put(0x01DF, 6);
-        packetLength.put(0x01E0, 30);
-        packetLength.put(0x01E1, 8);
-        packetLength.put(0x01E2, 34);
-        packetLength.put(0x01E3, 14);
-        packetLength.put(0x01E4, 2);
-        packetLength.put(0x01E5, 6);
-        packetLength.put(0x01E6, 26);
-        packetLength.put(0x01E7, 2);
-        packetLength.put(0x01E8, 28);
-        packetLength.put(0x01E9, 81);
-        packetLength.put(0x01EA, 6);
-        packetLength.put(0x01EB, 10);
-        packetLength.put(0x01EC, 26);
-        packetLength.put(0x01ED, 2);
-        packetLength.put(0x01EF, -1);
-        packetLength.put(0x01F1, -1);
-        packetLength.put(0x01F2, 20);
-        packetLength.put(0x01F3, 10);
-        packetLength.put(0x01F4, 32);
-        packetLength.put(0x01F5, 9);
-        packetLength.put(0x01F6, 34);
-        packetLength.put(0x01F7, 14);
-        packetLength.put(0x01F8, 2);
-        packetLength.put(0x01F9, 6);
-        packetLength.put(0x01FA, 48);
-        packetLength.put(0x01FB, 56);
-        packetLength.put(0x01FC, -1);
-        packetLength.put(0x01FD, 4);
-        packetLength.put(0x01FE, 5);
-        packetLength.put(0x01FF, 10);
-        packetLength.put(0x0200, 26);
-        packetLength.put(0x0204, 18);
-        packetLength.put(0x020B, 19);
+        packetLength = new int[] {
+           10,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+//0x0040
+            0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+            0, 50,  3, -1, 55, 17,  3, 37, 46, -1, 23, -1,  3,108,  3,  2,
+            3, 28, 19, 11,  3, -1,  9,  5, 54, 53, 58, 60, 41,  2,  6,  6,
+//0x0080
+            7,  3,  2,  2,  2,  5, 16, 12, 10,  7, 29, 23, -1, -1, -1,  0,
+            7, 22, 28,  2,  6, 30, -1, -1,  3, -1, -1,  5,  9, 17, 17,  6,
+           23,  6,  6, -1, -1, -1, -1,  8,  7,  6,  7,  4,  7,  0, -1,  6,
+            8,  8,  3,  3, -1,  6,  6, -1,  7,  6,  2,  5,  6, 44,  5,  3,
+//0x00C0
+            7,  2,  6,  8,  6,  7, -1, -1, -1, -1,  3,  3,  6,  6,  2, 27,
+            3,  4,  4,  2, -1, -1,  3, -1,  6, 14,  3, -1, 28, 29, -1, -1,
+           30, 30, 26,  2,  6, 26,  3,  3,  8, 19,  5,  2,  3,  2,  2,  2,
+            3,  2,  6,  8, 21,  8,  8,  2,  2, 26,  3, -1,  6, 27, 30, 10,
+//0x0100
+            2,  6,  6, 30, 79, 31, 10, 10, -1, -1,  4,  6,  6,  2, 11, -1,
+           10, 39,  4, 10, 31, 35, 10, 18,  2, 13, 15, 20, 68,  2,  3, 16,
+            6, 14, -1, -1, 21,  8,  8,  8,  8,  8,  2,  2,  3,  4,  2, -1,
+            6, 86,  6, -1, -1,  7, -1,  6,  3, 16,  4,  4,  4,  6, 24, 26,
+//0x0140
+           22, 14,  6, 10, 23, 19,  6, 39,  8,  9,  6, 27, -1,  2,  6,  6,
+          110,  6, -1, -1, -1, -1, -1,  6, -1, 54, 66, 54, 90, 42,  6, 42,
+           -1, -1, -1, -1, -1, 30, -1,  3, 14,  3, 30, 10, 43, 14,186,182,
+           14, 30, 10,  3, -1,  6,106, -1,  4,  5,  4, -1,  6,  7, -1, -1,
+//0x0180
+            6,  3,106, 10, 10, 34,  0,  6,  8,  4,  4,  4, 29, -1, 10,  6,
+           90, 86, 24,  6, 30,102,  9,  4,  8,  4, 14, 10,  4,  6,  2,  6,
+            3,  3, 35,  5, 11, 26, -1,  4,  4,  6, 10, 12,  6, -1,  4,  4,
+           11,  7, -1, 67, 12, 18,114,  6,  3,  6, 26, 26, 26, 26,  2,  3,
+//0x01C0
+            2, 14, 10, -1, 22, 22,  4,  2, 13, 97,  0,  9,  9, 29,  6, 28,
+            8, 14, 10, 35,  6,  8,  4, 11, 54, 53, 60,  2, -1, 47, 33,  6,
+           30,  8, 34, 14,  2,  6, 26,  2, 28, 81,  6, 10, 26,  2, -1, -1,
+           -1, -1, 20, 10, 32,  9, 34, 14,  2,  6, 48, 56, -1,  4,  5, 10,
+//0x0200
+           26,  0,  0,  0, 18,  0,  0,  0,  0,  0,  0, 19, 10,  0,  0,  0,
+            0,  0, 16,  0,  8, -1,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+            0,  0,  0,  0,  0, 14, 10,  4, 10,  0,  0,  0,  0,  0,  0,  0
+        };
     }
 }

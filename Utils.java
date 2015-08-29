@@ -1,3 +1,6 @@
+import org.luaj.vm2.LuaValue;
+import org.luaj.vm2.Varargs;
+
 public class Utils {
     static char[] hexDigits = new char[] {
         '0', '1', '2', '3', '4', '5', '6', '7',
@@ -23,5 +26,14 @@ public class Utils {
         printHexInt8( (s >> 16) & 255 );
         printHexInt8( (s >> 8) & 255 );
         printHexInt8( s & 255 );
+    }
+
+    public static void clearTable(LuaValue table) {
+        LuaValue k = LuaValue.NIL;
+        while(true) {
+            Varargs n = table.next(k);
+            if( (k = n.arg1()).isnil() ) break;
+            table.set(k, LuaValue.NIL);
+        }
     }
 }

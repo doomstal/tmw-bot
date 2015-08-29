@@ -115,6 +115,7 @@ function loop_body()
                 else
                     leader_x = nil
                     leader_y = nil
+                    return
                 end
             end
             if inside_koga then
@@ -459,12 +460,28 @@ function find_being_job(job)
     end
 end
 
+function nearest_being(x, y, typ)
+    if not typ then typ = "monster" end
+    local ret = nil
+    local ret_dist = nil
+    for _, being in pairs(beings) do
+        if being.type == typ then
+            local dist = math.sqrt((x-being.x)^2 + (y-being.y)^2)
+            if not ret or dist < ret_dist then
+                ret = being
+                ret_dist = dist
+            end
+        end
+    end
+    return ret, ret_dist
+end
+
 function nearest_warp(x, y)
     if not warps[map_name] then return end
     local ret = nil
     local ret_dist = nil;
     for _, warp in pairs(warps[map_name]) do
-        if not x or not y then return warp end
+        if not x or not y then return warp, 0 end
         local dist = math.sqrt((x-warp.src_x)^2+(y-warp.src_y)^2)
         if not ret or dist < ret_dist then
             ret = warp
@@ -479,7 +496,7 @@ function nearest_koga(x, y)
     local ret_dist = nil
     for _, being in pairs(beings) do
         if koga_npcs[being.name] then
-            if not x or not y then return being end
+            if not x or not y then return being, 0 end
             local dist = math.sqrt((x-being.x)^2+(y-being.y)^2)
             if not ret or dist < ret_dist then
                 ret = being
@@ -492,6 +509,10 @@ end
 
 function leader_command(cmd)
     cmd = mysplit(cmd)
+    for i=2,#cmd do
+        if cmd[i] == "[true]" then cmd[i] = true end
+        if cmd[i] == "[false]" then cmd[i] = false end
+    end
     if cmd[1] == "reload" then
         send_packet("reload")
     elseif cmd[1] == "send_packet" then
@@ -510,6 +531,22 @@ function leader_command(cmd)
                 interacting_npc = cmd[3]
             end
         elseif cmd[2] == "npc_choise" and interacting_npc then
+            if not cmd[4] then
+                cmd[4] = cmd[3]
+                cmd[3] = interacting_npc
+            end
+        elseif cmd[2] == "npc_buy_sell" and interacting_npc then
+            if not cmd[4] then
+                cmd[4] = cmd[3]
+                cmd[3] = interacting_npc
+            end
+        elseif (cmd[2] == "npc_buy_item" or cmd[2] == "npc_sell_item") and interacting_npc then
+            if not cmd[5] then
+                cmd[5] = cmd[4]
+                cmd[4] = cmd[3]
+                cmd[3] = interacting_npc
+            end
+        elseif (cmd[2] == "npc_int_input" or cmd[2] == "npc_str_input") and interacting_npc then
             if not cmd[4] then
                 cmd[4] = cmd[3]
                 cmd[3] = interacting_npc
@@ -607,6 +644,11 @@ function leader_command(cmd)
             state_stack:push("leader_wait")
             state = "goto"
         end
+    elseif cmd[1] == "attack" then
+        local being = nearest_being(character.x, character.y, "monster")
+        if not being then return end
+        print("attack being "..being.id)
+        send_packet("attack", being.id)
     end
 end
 

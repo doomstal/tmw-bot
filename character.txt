@@ -1,0 +1,89 @@
+exp
+
+money
+
+job_base
+job_exp
+job_mod
+
+level
+
+exp_need
+
+str_base
+str_mod
+agi_base
+agi_mod
+vit_base
+vit_mod
+int_base
+int_mod
+dex_base
+dex_mod
+luk_base
+luk_mod
++ str
++ agi
++ vit
++ int
++ dex
++ luk
+
+char_points
+skill_points
+
+boots
+
+helmet
+weapon
+misc2
+armor
+cape
+legs
+shield
+gloves
+misc1
+
+attack_base
+attack_mod
++ attack
+
+defence_base
+defence_mod
++ defence
+
+mattack_base
+mattack_mod
++ mattack
+
+mdefence_base
+mdefence_mod
++ mdefence
+
+evasion_base
+evasion_mod
++ evasion
+
+hit
+
+critical
+
+range
+
+attack_speed
+
+speed
+
+weight
+weight_max
+
+hp
+hp_max
+
+mp
+mp_max
+
+race
+
+hair_style
+hair_color
