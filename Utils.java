@@ -7,25 +7,12 @@ public class Utils {
         '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'
     };
 
-    public static void printHexDigit(int d) {
-        if(d >= 0 && d < 16) System.out.append(hexDigits[d]);
+    public static String int8toHex(int v) {
+        return "" + hexDigits[(v>>4)&0x0F] + hexDigits[v&0x0F];
     }
 
-    public static void printHexInt8(int b) {
-        printHexDigit((b >> 4) & 15);
-        printHexDigit(b & 15);
-    }
-
-    public static void printHexInt16(int s) {
-        printHexInt8( (s >> 8) & 255 );
-        printHexInt8( s & 255 );
-    }
-
-    public static void printHexInt32(int s) {
-        printHexInt8( (s >> 24) & 255 );
-        printHexInt8( (s >> 16) & 255 );
-        printHexInt8( (s >> 8) & 255 );
-        printHexInt8( s & 255 );
+    public static String int16toHex(int v) {
+        return int8toHex((v>>8)&0xFF)+int8toHex(v&0xFF);
     }
 
     public static void clearTable(LuaValue table) {
@@ -34,6 +21,15 @@ public class Utils {
             Varargs n = table.next(k);
             if( (k = n.arg1()).isnil() ) break;
             table.set(k, LuaValue.NIL);
+        }
+    }
+
+    public static void copyTable(LuaValue src, LuaValue dst) {
+        LuaValue k = LuaValue.NIL;
+        while(true) {
+            Varargs n = src.next(k);
+            if( (k = n.arg1()).isnil() ) break;
+            dst.set(k, n.arg(2));
         }
     }
 }

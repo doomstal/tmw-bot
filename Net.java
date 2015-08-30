@@ -24,398 +24,491 @@ public class Net {
 
     public Net() { }
 
-    public void readCoordinatePair(LuaValue being) throws IOException {
-        int b0 = readInt8();
-        int b1 = readInt8();
-        int b2 = readInt8();
-        int b3 = readInt8();
-        int b4 = readInt8();
-        being.set("x", (b1 | (b0 << 8)) >> 6);
-        being.set("y", (b2 | ((b1 & 0x3F) << 8)) >> 4);
-        being.set("dst_x", (b3 | ((b2 & 0x0F) << 8)) >> 2);
-        being.set("dst_y", b4 | (b3 & 0x03) << 8);
-    }
+    public class PacketIn {
+        byte[] buffer = new byte[2048];
+        int[] tokens = new int[1024];
 
-    public void readCoordinates(LuaValue being) throws IOException {
-        int b0 = readInt8();
-        int b1 = readInt8();
-        int b2 = readInt8();
-        being.set("x", ((b1 & 0xC0) | ((b0 & 0xFF) << 8)) >> 6);
-        being.set("y", ((b2 & 0xF0) | ((b1 & 0x3F) << 8)) >> 4);
-        being.set("dst_x", being.get("x"));
-        being.set("dst_y", being.get("y"));
-        being.set("dir", b2 & 0x0F);
-    }
+        int id;
+        int length;
+        int pos;
+        int token;
 
-    public void expectPacket(int p) throws IOException {
-        readPacket();
-        if(packet != p) {
-            System.out.append("unexpected packet ");
-            Utils.printHexInt16(packet);
-            readHex();
+        PacketIn() throws IOException {
+            InputStream in = sock.getInputStream();
+            pos = 0;
+            in.read(buffer, 0, 2);
+            length = 2;
+            this.id = readInt16();
+            length = getPacketLength(id);
+            if(length == -1) {
+                in.read(buffer, 2, 2);
+                length = 4;
+                length = readInt16();
+            }
+            in.read(buffer, pos, length - pos);
+        }
+
+        public int getId() { return id; }
+
+        public int getLength() { return length; }
+
+        public void skip(int n) {
+            tokens[token++] = 0;
+            tokens[token++] = n;
+            checkOverflow(n);
+
+            pos += n;
+        }
+
+        public void skip() {
+            skip(length - pos);
+        }
+
+        public int readInt8() {
+            tokens[token++] = 1;
+            checkOverflow(1);
+
+            int value = buffer[pos]&0xFF;
+            pos += 1;
+            return value;
+        }
+
+        public int readInt16() {
+            tokens[token++] = 2;
+            checkOverflow(2);
+
+            int value = buffer[pos]&0xFF | ((buffer[pos+1]&0xFF)<<8);
+            pos += 2;
+            return value;
+        }
+
+        public int readInt32() {
+            tokens[token++] = 3;
+            checkOverflow(4);
+
+            int value = buffer[pos]&0xFF | ((buffer[pos+1]&0xFF)<<8) | ((buffer[pos+2]&0xFF)<<16) | ((buffer[pos+3]&0xFF)<<24);
+            pos += 4;
+            return value;
+        }
+
+        public String readString(int len) {
+            tokens[token++] = 4;
+            tokens[token++] = len;
+            checkOverflow(len);
+
+            StringBuilder sb = new StringBuilder();
+            boolean append = true;
+            for(int i=0; i!=len; ++i) {
+                char c = (char)buffer[pos+i];
+                if(c == 0) append = false;
+                if(append) sb.append(c);
+            }
+            pos += len;
+            return sb.toString();
+        }
+
+        public void readCoordinates(LuaValue being) {
+            tokens[token++] = 5;
+            checkOverflow(3);
+
+            int b0 = buffer[pos]&0xFF;
+            int b1 = buffer[pos+1]&0xFF;
+            int b2 = buffer[pos+2]&0xFF;
+            being.set("x", ((b1 & 0xC0) | ((b0 & 0xFF) << 8)) >> 6);
+            being.set("y", ((b2 & 0xF0) | ((b1 & 0x3F) << 8)) >> 4);
+            being.set("dst_x", being.get("x"));
+            being.set("dst_y", being.get("y"));
+            int dir = 1;
+            switch(b2&0x0F) {
+                case 0: dir = 1; break;
+                case 1: dir = 1; break;
+                case 2: dir = 2; break;
+                case 3: dir = 4; break;
+                case 4: dir = 4; break;
+                case 5: dir = 4; break;
+                case 6: dir = 8; break;
+                case 7: dir = 1; break;
+                default:
+                    System.out.println("unknown dir="+(b2&0x0F));
+            }
+            being.set("dir", dir);
+            pos += 3;
+        }
+
+        public void readCoordinatePair(LuaValue being) {
+            tokens[token++] = 6;
+            checkOverflow(5);
+
+            int b0 = buffer[pos]&0xFF;
+            int b1 = buffer[pos+1]&0xFF;
+            int b2 = buffer[pos+2]&0xFF;
+            int b3 = buffer[pos+3]&0xFF;
+            int b4 = buffer[pos+4]&0xFF;
+            being.set("x", (b1 | (b0 << 8)) >> 6);
+            being.set("y", (b2 | ((b1 & 0x3F) << 8)) >> 4);
+            being.set("dst_x", (b3 | ((b2 & 0x0F) << 8)) >> 2);
+            being.set("dst_y", b4 | (b3 & 0x03) << 8);
+            pos += 5;
+        }
+
+        public void checkOverflow(int n) {
+            if(pos + n > length) {
+                System.out.println("packet read overflow!!!");
+                System.out.println(this.toString());
+                System.exit(1);
+            }
+        }
+
+        public void close() {
+            if(pos < length) {
+                System.out.println("packet read unfinished!!!");
+                System.out.println(this.toString());
+                System.exit(1);
+            }
+        }
+
+        @Override
+        public String toString() {
+            StringBuilder sb = new StringBuilder();
+            sb.append("PacketIn ");
+            sb.append(Utils.int16toHex(id));
+            sb.append(' ');
+            sb.append(pos);
+            sb.append('/');
+            sb.append(length);
+            for(int i=0; i!=token; ++i) {
+                sb.append(' ');
+                switch(tokens[i]) {
+                    case 0: sb.append("skip("+tokens[++i]+')'); break;
+                    case 1: sb.append("int8"); break;
+                    case 2: sb.append("int16"); break;
+                    case 3: sb.append("int32"); break;
+                    case 4: sb.append("string("+tokens[++i]+')'); break;
+                    case 5: sb.append("pos3"); break;
+                    case 6: sb.append("pos5"); break;
+                }
+            }
+            return sb.toString();
         }
     }
 
-    public int readPacket() throws IOException {
-        length = -2;
-        recv_bytes = 0;
-        packet = readInt16();
-        System.out.append("readpacket ");
-        Utils.printHexInt16(packet);
-        System.out.println();
-        length = getPacketLength();
-        if(length == -1) {
-            length = readInt16();
+    public class PacketOut {
+        byte[] buffer = new byte[2048];
+        int[] tokens = new int[1024];
+
+        int id;
+        int length;
+        int pos;
+        int token;
+
+        PacketOut(int id) {
+            this.id = id;
+            length = getPacketLength(id);
+            writeInt16(id);
+            if(length == -1) writeInt16(0); // placeholder
         }
-        return packet;
+
+        public void writeInt8(int b) {
+            tokens[token++] = 1;
+            checkOverflow(1);
+
+            buffer[pos] = (byte)(b & 0xFF);
+            pos += 1;
+        }
+
+        public void writeInt16(int v) {
+            tokens[token++] = 2;
+            checkOverflow(2);
+
+            buffer[pos] = (byte)(v & 0xFF);
+            buffer[pos+1] = (byte)( (v>>8) & 0xFF );
+            pos += 2;
+        }
+
+        public void writeInt32(int v) {
+            tokens[token++] = 3;
+            checkOverflow(4);
+
+            buffer[pos] = (byte)(v & 0xFF);
+            buffer[pos+1] = (byte)( (v>>8) & 0xFF );
+            buffer[pos+2] = (byte)( (v>>16) & 0xFF );
+            buffer[pos+3] = (byte)( (v>>24) & 0xFF );
+            pos += 4;
+        }
+
+        public void writeString(int len, String str) {
+            tokens[token++] = 4;
+            tokens[token++] = len;
+            checkOverflow(len);
+
+            byte[] bytes = str.getBytes();
+            for(int i=0; i!=len; ++i) {
+                if(i < bytes.length) buffer[pos+i] = bytes[i];
+                else buffer[pos+i] = 0;
+            }
+            pos += len;
+        }
+
+        public void writeCoordinates(int x, int y, int dir) {
+            tokens[token++] = 5;
+            checkOverflow(3);
+
+            int b0;
+            int b1;
+            int b2;
+            int tmp = x << 6;
+            b0 = (tmp >> 8) & 0xFF;
+            b1 = tmp & 0xC0;
+            tmp = y << 4;
+            b1 |= (tmp >> 8) & 0x3F;
+            b2 = tmp & 0xF0;
+            b2 |= dir & 0x0F;
+            buffer[pos] = (byte)b0;
+            buffer[pos+1] = (byte)b1;
+            buffer[pos+2] = (byte)b2;
+            pos += 3;
+        }
+
+        public void checkOverflow(int n) {
+            if(length == -1) return;
+            if(pos + n > length) {
+                System.out.println("packet read overflow!!!");
+                System.out.println(this.toString());
+                System.exit(1);
+            }
+        }
+
+        public void send() throws IOException {
+            if(length > -1 && pos < length) {
+                System.out.println("packet write unfinished!!!");
+                System.out.println(this.toString());
+                System.exit(1);
+            }
+            if(length == -1) {
+                length = pos;
+                pos = 2;
+                writeInt16(length);
+            }
+            sock.getOutputStream().write(buffer, 0, length);
+        }
+
+        @Override
+        public String toString() {
+            StringBuilder sb = new StringBuilder();
+            sb.append("PacketOut ");
+            sb.append(Utils.int16toHex(id));
+            sb.append(' ');
+            sb.append(pos);
+            sb.append('/');
+            sb.append(length);
+            for(int i=0; i!=token; ++i) {
+                sb.append(' ');
+                switch(tokens[i]) {
+                    case 0: sb.append("skip("+tokens[++i]+')'); break;
+                    case 1: sb.append("int8"); break;
+                    case 2: sb.append("int16"); break;
+                    case 3: sb.append("int32"); break;
+                    case 4: sb.append("string("+tokens[++i]+')'); break;
+                    case 5: sb.append("pos3"); break;
+                    case 6: sb.append("pos5"); break;
+                }
+            }
+            return sb.toString();
+        }
     }
 
-    public void sendPacket(int p) throws IOException {
-        send_bytes = 0;
-        send_packet = p;
-        writeInt16(p);
+    public PacketIn readPacket() throws IOException {
+        return new PacketIn();
     }
 
-    public int getRecvBytes() {
-        return recv_bytes;
+    public PacketOut newPacket(int id) {
+        return new PacketOut(id);
     }
 
-    public int getSendBytes() {
-        return send_bytes;
-    }
-
-    public int getPacketLength(int p) throws IOException {
+    public int getPacketLength(int p) {
         if(p == 0x7530) return 2;
         if(p == 0x7531) return 10;
         if(p < packetLength.length && packetLength[p] != 0) {
             return packetLength[p];
         }
-        System.out.append("unknown packet ");
-        Utils.printHexInt16(p);
-        System.out.println();
-        readHex();
+        System.out.println("unknown packet "+Utils.int16toHex(p));
         System.exit(1);
         return -2;
     }
 
-    public int getPacketLength() throws IOException {
-        if(length != -2) return length;
-        return getPacketLength(packet);
-    }
-
-    public void checkExceedLength() throws IOException {
-        if(packet != -1) {
-            int len = getPacketLength();
-            if(len > -1 && recv_bytes >= len) {
-                Utils.printHexInt16(packet);
-                System.out.println(" packet length exceeded!");
-                System.exit(1);
-            }
-        }
-    }
-
-    public void checkPacketLength() throws IOException {
-        if(packet != -1) {
-            int len = getPacketLength();
-            if(recv_bytes != len) {
-                Utils.printHexInt16(packet);
-                System.out.println(" packet lengths mismatch! pb="+recv_bytes+" len="+len);
-                System.exit(1);
-            }
-        }
-        packet = -1;
-        length = -2;
-    }
-
-    public void checkSentPacketLength() throws IOException {
-        int len = getPacketLength(send_packet);
-        if(len != -1 && send_bytes != len) {
-            Utils.printHexInt16(send_packet);
-            System.out.println(" packet lengths mismatch! (send) pb="+send_bytes+" len="+len);
-            System.exit(1);
-        }
-    }
-
-    public void skipPacket() throws IOException {
-        int len = getPacketLength();
-        if(recv_bytes == len) return;
-        skip(len - recv_bytes);
-        recv_bytes = len;
-    }
-
-    public void readHex() throws IOException {
-        for(;;) {
-            Utils.printHexInt8(readInt8());
-        }
-    }
-
-    public void skip(int n) throws IOException {
-        checkExceedLength();
-        sock.getInputStream().skip(n);
-        recv_bytes += n;
-    }
-
-    public int readInt8() throws IOException {
-        checkExceedLength();
-        int b = sock.getInputStream().read();
-        ++recv_bytes;
-        if(b == -1) throw new IOException("socket closed");
-        return b;
-    }
-
-    public int readInt16() throws IOException {
-        int b1 = readInt8();
-        int b2 = readInt8();
-        return b1 + (b2<<8);
-    }
-
-    public int readInt32() throws IOException {
-        int b1 = readInt8();
-        int b2 = readInt8();
-        int b3 = readInt8();
-        int b4 = readInt8();
-        return b1 + (b2<<8) + (b3<<16) + (b4<<24);
-    }
-
-    public String readString(int len) throws IOException {
-        checkExceedLength();
-        StringBuilder sb = new StringBuilder();
-        boolean append = true;
-        recv_bytes += len;
-        for(; len>0; --len) {
-            char c = (char)sock.getInputStream().read();
-            if(c == 0) append = false;
-            if(append) sb.append(c);
-        }
-        return sb.toString();
-    }
-
-    public void writeInt8(int b) throws IOException {
-        sock.getOutputStream().write(b);
-        ++send_bytes;
-    }
-
-    public void writeInt16(int v) throws IOException {
-        sock.getOutputStream().write( v & 255 );
-        sock.getOutputStream().write( (v>>8) & 255 );
-        send_bytes += 2;
-    }
-
-    public void writeInt32(int v) throws IOException {
-        sock.getOutputStream().write( v & 255 );
-        sock.getOutputStream().write( (v>>8) & 255 );
-        sock.getOutputStream().write( (v>>16) & 255 );
-        sock.getOutputStream().write( (v>>24) & 255 );
-        send_bytes += 4;
-    }
-
-    public void writeString(int len, String str) throws IOException {
-        byte[] b = str.getBytes();
-        for(int i=0; i!=len; ++i) {
-            if(i < b.length) sock.getOutputStream().write(b[i]);
-            else sock.getOutputStream().write(0);
-        }
-        send_bytes += len;
-    }
-
-    public void writeCoordinates(int x, int y, int dir) throws IOException {
-        int b0;
-        int b1;
-        int b2;
-        int tmp = x << 6;
-        b0 = (tmp >> 8) & 0xFF;
-        b1 = tmp & 0xC0;
-        tmp = y << 4;
-        b1 |= (tmp >> 8) & 0x3F;
-        b2 = tmp & 0xF0;
-        b2 |= dir & 0x0F;
-        writeInt8(b0);
-        writeInt8(b1);
-        writeInt8(b2);
-    }
-
     public void connect(bot b) throws IOException {
-        System.out.println("connecting to login server");
-
-        sock = new Socket("server.themanaworld.org", 6901); // login server
-
-        writeInt16(0x7530); // version request
-
-        expectPacket(0x7531); // version response
-        {
-            int major = readInt8();
-            int minor = readInt8();
-            int patch = readInt8();
-            int devel = readInt8();
-            int flags = readInt8();
-            int which = readInt8();
-            int vendor = readInt16();
-        }
-        checkPacketLength();
-
         File file = new File("config.txt");
         BufferedReader br = new BufferedReader(new FileReader(file));
         String username = br.readLine();
         String password = br.readLine();
         String charname = br.readLine();
 
-        writeInt16(0x0064); // login request
-        writeInt32(0);
-        writeString(24, username);
-        writeString(24, password);
-        writeInt8(2);
+        System.out.println("connecting to login server");
 
-        readPacket();
-        if(packet == 0x0063) { // update host
-            int len = getPacketLength() - 4;
-            System.out.println(readString(len));
+        sock = new Socket("server.themanaworld.org", 6901); // login server
 
-            checkPacketLength();
-            readPacket();
-        }
-        if(packet == 0x006A) {
-            System.out.println("login error");
-            readHex();
-            System.exit(1);
-        }
-        if(packet == 0x0081) {
-            System.out.println("connection problem");
-            readHex();
-            System.exit(1);
-        }
-        if(packet == 0x0069) { // login data
-            int len = getPacketLength();
-            int worldCount = (len - 47) / 32;
+        PacketOut po = newPacket(0x0064); // login request
+        po.writeInt32(0);
+        po.writeString(24, username);
+        po.writeString(24, password);
+        po.writeInt8(2);
+        po.send();
 
-            b.sid1 = readInt32();
-            b.acid = readInt32();
-            b.sid2 = readInt32();
+        PacketIn pi = null;
 
-            System.out.append("Session ID : ");
-            Utils.printHexInt32(b.sid1);
-            Utils.printHexInt32(b.sid2);
-            System.out.append("\nAccount ID : ");
-            Utils.printHexInt32(b.acid);
-            System.out.println();
-
-            skip(30);
-
-            b.gender = readInt8();
-
-            for(int i=0; i!=worldCount; ++i) {
-                b.charServerIp = "" + readInt8() + "." + readInt8() + "." + readInt8() + "." + readInt8();
-                b.charServerPort = readInt16() & 0x0000FFFF;
-                String name = readString(20);
-                int online = readInt32();
-
-                System.out.println(b.charServerIp + ":" + b.charServerPort + " " + name + " (" + online + ")");
-                skip(2);
+        while(true) {
+            pi = readPacket();
+            if(pi.getId() == 0x0069) break; // login data
+            switch(pi.getId()) {
+                case 0x006A:
+                    System.out.println("login error");
+                    System.exit(1);
+                case 0x0081:
+                    System.out.println("connection problem");
+                    System.exit(1);
             }
-            checkPacketLength();
-        } else {
-            System.out.append("unexpected packet! ");
-            Utils.printHexInt16(packet);
-            System.exit(2);
         }
+        int worldCount = (pi.getLength() - 47) / 32;
+        b.sid1 = pi.readInt32();
+        b.acid = pi.readInt32();
+        b.sid2 = pi.readInt32();
+        pi.skip(30);
+        b.gender = pi.readInt8();
+        b.charServerIp = ""+pi.readInt8()+"."+pi.readInt8()+"."+pi.readInt8()+"."+pi.readInt8();
+        b.charServerPort = pi.readInt16();
+        String name = pi.readString(20);
+        int online = pi.readInt16();
+        pi.skip();
+        pi.close();
 
         sock.close(); // disconnect from login server
 
+        System.out.println(b.charServerIp+":"+b.charServerPort+" "+name+" ("+online+')');
         System.out.println("connecting to char server");
 
         sock = new Socket(b.charServerIp, b.charServerPort); // char server
 
-        writeInt16(0x0065); // character server connection request
-        writeInt32(b.acid);
-        writeInt32(b.sid1);
-        writeInt32(b.sid2);
-        writeInt16(1);
-        writeInt8(b.gender);
+        po = newPacket(0x0065); // character server connection request
+        po.writeInt32(b.acid);
+        po.writeInt32(b.sid1);
+        po.writeInt32(b.sid2);
+        po.writeInt16(1);
+        po.writeInt8(b.gender);
+        po.send();
 
-        skip(4);
+        sock.getInputStream().skip(4);
 
-        expectPacket(0x006B); // update character list
-        {
-            int len = getPacketLength();
-            skip(20);
-            int charCount = (len - 24) / 106;
+        while(true) {
+            pi = readPacket();
+            if(pi.getId() == 0x0071) break; // SMSG_CHAR_MAP_INFO
+            switch(pi.getId()) {
+                case 0x006A:
+                    System.out.println("login error");
+                    System.exit(1);
+                case 0x006C:
+                    System.out.println("connection refused: "+pi.readInt8());
+                    System.exit(1);
+                case 0x006B: { // update character list
+                    pi.skip(20);
+                    int charCount = (pi.getLength() - 24) / 106;
 
-            b.character.set("id", readInt32());
-            b.character.set("exp", readInt32());
-            b.character.set("money", readInt32());
-            b.character.set("job_exp", readInt32());
-            b.character.set("job_level", readInt32());
-            b.character.set("boots", readInt16());
-            b.character.set("gloves", readInt16());
-            b.character.set("cape", readInt16());
-            b.character.set("misc1", readInt16());
-            skip(12); // (2) option, (2) unused, (4) karma, (4) manner
-            b.character.set("char_points", readInt16());
-            b.character.set("hp", readInt16());
-            b.character.set("hp_max", readInt16());
-            b.character.set("mp", readInt16());
-            b.character.set("mp_max", readInt16());
-            b.character.set("speed", readInt16());
-            b.character.set("race", readInt16());
-            b.character.set("hair_style", readInt16());
-            b.character.set("weapon", readInt16());
-            b.character.set("level", readInt16());
-            b.character.set("skill_points", readInt16());
-            b.character.set("legs", readInt16());
-            b.character.set("shield", readInt16());
-            b.character.set("helmet", readInt16());
-            b.character.set("armor", readInt16());
-            b.character.set("hair_color", readInt16());
-            b.character.set("misc2", readInt16());
-            b.character.set("name", readString(24));
-            b.character.set("str_base", readInt8());
-            b.character.set("agi_base", readInt8());
-            b.character.set("vit_base", readInt8());
-            b.character.set("int_base", readInt8());
-            b.character.set("dex_base", readInt8());
-            b.character.set("luk_base", readInt8());
-            skip(1); // char num
-            skip(1); // unused
+                    boolean char_found = false;
+                    int char_num = 0;
+                    for(int i=0; i!=charCount; ++i) {
+                        LuaTable character = new LuaTable();
 
-            b.beings.set(b.character.get("id"), b.character);
+                        character.set("id", pi.readInt32());
+                        character.set("exp", pi.readInt32());
+                        character.set("money", pi.readInt32());
+                        character.set("job_exp", pi.readInt32());
+                        character.set("job_level", pi.readInt32());
+                        character.set("boots", pi.readInt16());
+                        character.set("gloves", pi.readInt16());
+                        character.set("cape", pi.readInt16());
+                        character.set("misc1", pi.readInt16());
+                        pi.skip(12); // (2) option, (2) unused, (4) karma, (4) manner
+                        character.set("char_points", pi.readInt16());
+                        character.set("hp", pi.readInt16());
+                        character.set("hp_max", pi.readInt16());
+                        character.set("mp", pi.readInt16());
+                        character.set("mp_max", pi.readInt16());
+                        character.set("speed", pi.readInt16());
+                        character.set("race", pi.readInt16());
+                        character.set("hair_style", pi.readInt16());
+                        character.set("weapon", pi.readInt16());
+                        int level = pi.readInt16();
+                        character.set("level", level);
+                        character.set("skill_points", pi.readInt16());
+                        character.set("legs", pi.readInt16());
+                        character.set("shield", pi.readInt16());
+                        character.set("helmet", pi.readInt16());
+                        character.set("armor", pi.readInt16());
+                        character.set("hair_color", pi.readInt16());
+                        character.set("misc2", pi.readInt16());
+                        name = pi.readString(24);
+                        character.set("name", name);
+                        character.set("str_base", pi.readInt8());
+                        character.set("agi_base", pi.readInt8());
+                        character.set("vit_base", pi.readInt8());
+                        character.set("int_base", pi.readInt8());
+                        character.set("dex_base", pi.readInt8());
+                        character.set("luk_base", pi.readInt8());
+                        char_num = pi.readInt8();
+                        pi.skip(1); // unused
+                        System.out.println(name+" ("+level+" lvl)");
 
-            System.out.println(b.character.get("name") + " (" + b.character.get("level") + " lvl)");
+                        if(name.equals(charname)) {
+                            Utils.copyTable(character, b.character);
+                            pi.skip();
+                            char_found = true;
+                            break;
+                        }
+                    }
+                    if(!char_found) {
+                        System.out.println("character '"+charname+"' not found!");
+                        System.exit(1);
+                    }
+                    pi.close();
 
-            if(charCount > 1) skip(106 * (charCount - 1));
+                    po = newPacket(0x0066); // select character request
+                    po.writeInt8(char_num);
+                    po.send();
+                } break;
+            }
         }
-        checkPacketLength();
-
-        writeInt16(0x0066); // select character request
-        writeInt8(0);
-
-        expectPacket(0x0071); // SMSG_CHAR_MAP_INFO
-        skip(4);
-        b.mapName = readString(16);
-        b.mapServerIp = "" + readInt8() + "." + readInt8() + "." + readInt8() + "." + readInt8();
-        b.mapServerPort = readInt16() & 0x0000FFFF;
-        System.out.println(b.mapServerIp + ":" + b.mapServerPort + " " + b.mapName);
-        checkPacketLength();
+        pi.skip(4);
+        b.mapName = pi.readString(16);
+        b.mapServerIp = ""+pi.readInt8()+"."+pi.readInt8()+"."+pi.readInt8()+"."+pi.readInt8();
+        b.mapServerPort = pi.readInt16();
+        pi.close();
 
         sock.close();
 
+        System.out.println(b.mapServerIp + ":" + b.mapServerPort + " " + b.mapName);
         System.out.println("connecting to map server");
 
         sock = new Socket(b.mapServerIp, b.mapServerPort); // map server
 
-        writeInt16(0x0072); // CMSG_MAP_SERVER_CONNECT
-        writeInt32(b.acid);
-        writeInt32(b.character.get("id").toint());
-        writeInt32(b.sid1);
-        writeInt32(b.sid2);
-        writeInt8(b.gender);
+        po = newPacket(0x0072); // CMSG_MAP_SERVER_CONNECT
+        po.writeInt32(b.acid);
+        po.writeInt32(b.character.get("id").toint());
+        po.writeInt32(b.sid1);
+        po.writeInt32(b.sid2);
+        po.writeInt8(b.gender);
+        po.send();
 
-        skip(4);
+        sock.getInputStream().skip(4);
 
-        expectPacket(0x0073); // SMSG_MAP_LOGIN_SUCCESS
-        skip(4);
-        readCoordinates(b.character);
-        skip(2);
-        checkPacketLength();
-
+        pi = readPacket();
+        if(pi.getId() != 0x0073) {
+            System.out.println("unexpected packet");
+            System.out.println(pi);
+            System.exit(1);
+        }
+        pi.skip(4);
+        pi.readCoordinates(b.character);
+        pi.skip(2);
+        pi.close();
     }
 
     static {

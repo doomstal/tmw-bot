@@ -77,8 +77,7 @@ old_state = nil
 
 function loop_body()
     if state ~= old_state then
-        print("new_state", state)
-        local str = "state_stack ="
+        str = "new_state = "..state.." | stack ="
         for _,v in ipairs(state_stack) do str = str.." "..v end
         print(str)
         old_state = state
@@ -276,7 +275,7 @@ function loop_body()
         end
     elseif state == "koga_inside" then
         if not inside_koga then print("!!! not inside_koga") return end
-        if not koga_destination then print("not koga_destination") return end
+        if not koga_destination then print("!!! no koga_destination") return end
 
         if find_being_race(koga_emblems[koga_destination].race) then
             state = "koga_disembarking"
@@ -371,7 +370,7 @@ end
 
 function packet_handler(...)
     local args = table.pack(...)
-    local p = "packet_handler ";
+--[[    local p = "packet_handler ";
     for _,v in ipairs(args) do
         if type(v) == "boolean" then
             if v then v = "[true]" else v = "[false]" end
@@ -380,10 +379,21 @@ function packet_handler(...)
         if type(v) == "table" then v = "[table]" end
         p = p .. v .. " ";
     end
-    print(p)
+    print(p)]]
 
     if args[1] == "whisper" then
-        if args[2] == leader_name then leader_command(args[3]) end
+        if args[2] == leader_name then
+            leader_command(args[3])
+        else
+            print("[w] "..args[2].." : "..args[3])
+        end
+    elseif args[1] == "being_chat" then
+        local id = args[2]
+        if beings[id] and beings[id].name then print("[b] "..beings[id].name.." : "..args[3])
+        else print("[b] ["..args[2].."] : "..args[3]) end
+    elseif args[1] == "player_chat" then
+        if args[2] then print("[!] "..args[3])
+        else print("[g] "..args[3]) end
     elseif args[1] == "player_warp" then
         leader = nil
         leader_x = nil
@@ -660,7 +670,6 @@ function leader_command(cmd)
     elseif cmd[1] == "attack" then
         local being = nearest_being(character.x, character.y, "monster")
         if not being then return end
-        print("attack being "..being.id)
         send_packet("attack", being.id)
     end
 end
