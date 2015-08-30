@@ -115,13 +115,13 @@ public class bot {
     public void being_update_path(LuaValue being) {
         int x = being.get("x").toint();
         int y = being.get("y").toint();
-        int dstx = being.get("dstx").toint();
-        int dsty = being.get("dsty").toint();
-        if(x!=dstx || y!=dsty) {
+        int dst_x = being.get("dst_x").toint();
+        int dst_y = being.get("dst_y").toint();
+        if(x!=dst_x || y!=dst_y) {
             LuaValue path = being.get("path");
             int path_index = being.get("path_index").toint();
             if(path == NIL) {
-                being.set("path", map.find_path(x, y, dstx, dsty));
+                being.set("path", map.find_path(x, y, dst_x, dst_y));
                 being.set("path_index", 1);
                 return;
             }
@@ -129,8 +129,8 @@ public class bot {
             int length = path.length();
             if(path_index > length
             || path.get(path_index).get("x").toint() !=x || path.get(path_index).get("y").toint() != y
-            || path.get(length).get("x").toint() != dstx || path.get(length).get("y").toint() != dsty) {
-                being.set("path", map.find_path(x, y, dstx, dsty));
+            || path.get(length).get("x").toint() != dst_x || path.get(length).get("y").toint() != dst_y) {
+                being.set("path", map.find_path(x, y, dst_x, dst_y));
                 being.set("path_index", 1);
             }
 
@@ -180,9 +180,9 @@ public class bot {
                     Scanner s2 = new Scanner(line);
                     s2.useDelimiter(",|\\|");
                     LuaTable warp = new LuaTable();
-                    warp.set("src_map", s2.next());
-                    warp.set("src_x", s2.nextInt());
-                    warp.set("src_y", s2.nextInt());
+                    warp.set("map", s2.next());
+                    warp.set("x", s2.nextInt());
+                    warp.set("y", s2.nextInt());
                     s2.next();
                     s2.next();
                     s2.next();
@@ -1506,8 +1506,8 @@ public class bot {
                                 globals.set("map_name", mapName);
                                 character.set("x", x);
                                 character.set("y", y);
-                                character.set("dstx", x);
-                                character.set("dsty", y);
+                                character.set("dst_x", x);
+                                character.set("dst_y", y);
                                 being_update_path(character);
                                 packetHandler.call(valueOf("player_warp"));
                             } break;
@@ -1833,16 +1833,16 @@ public class bot {
                 LuaValue being = n.arg(2);
                 int x = being.get("x").toint();
                 int y = being.get("y").toint();
-                int dstx = being.get("dstx").toint();
-                int dsty = being.get("dsty").toint();
-                if(x!=dstx || y!=dsty) {
+                int dst_x = being.get("dst_x").toint();
+                int dst_y = being.get("dst_y").toint();
+                if(x!=dst_x || y!=dst_y) {
                     LuaValue path = being.get("path");
                     int path_index = being.get("path_index").toint();
                     int walk_time = being.get("walk_time").toint();
                     int dir = being.get("dir").toint();
 
                     if(path == NIL) {
-                        path = map.find_path(x, y, dstx, dsty);
+                        path = map.find_path(x, y, dst_x, dst_y);
                         path_index = 1;
                     }
                     if(path != NIL) {
@@ -1857,13 +1857,13 @@ public class bot {
                                 System.out.println("id="+being.get("id"));
                                 if(being.get("name")!=NIL) System.out.println("name="+being.get("name"));
                                 System.out.println("x=" + x + " y=" + y);
-                                System.out.println("dstx="+dstx+" dsty="+dsty);
+                                System.out.println("dst_x="+dst_x+" dst_y="+dst_y);
                                 System.out.println("path_index="+path_index);
                                 map.x1 = x;
                                 map.y1 = y;
-                                map.x2 = dstx;
-                                map.y2 = dsty;
-                                map.printMap(Math.min(x,dstx)-5, Math.min(y,dsty)-5, Math.max(x,dstx)+5, Math.max(y,dsty)+5);
+                                map.x2 = dst_x;
+                                map.y2 = dst_y;
+                                map.printMap(Math.min(x,dst_x)-5, Math.min(y,dst_y)-5, Math.max(x,dst_x)+5, Math.max(y,dst_y)+5);
                                 for(int i=1; i<=length; ++i) {
                                     p = path.get(i);
                                     System.out.println(p.get("x") + ", "+p.get("y"));

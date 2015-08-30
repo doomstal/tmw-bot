@@ -32,8 +32,8 @@ public class Net {
         int b4 = readInt8();
         being.set("x", (b1 | (b0 << 8)) >> 6);
         being.set("y", (b2 | ((b1 & 0x3F) << 8)) >> 4);
-        being.set("dstx", (b3 | ((b2 & 0x0F) << 8)) >> 2);
-        being.set("dsty", b4 | (b3 & 0x03) << 8);
+        being.set("dst_x", (b3 | ((b2 & 0x0F) << 8)) >> 2);
+        being.set("dst_y", b4 | (b3 & 0x03) << 8);
     }
 
     public void readCoordinates(LuaValue being) throws IOException {
@@ -42,8 +42,8 @@ public class Net {
         int b2 = readInt8();
         being.set("x", ((b1 & 0xC0) | ((b0 & 0xFF) << 8)) >> 6);
         being.set("y", ((b2 & 0xF0) | ((b1 & 0x3F) << 8)) >> 4);
-        being.set("dstx", being.get("x"));
-        being.set("dsty", being.get("y"));
+        being.set("dst_x", being.get("x"));
+        being.set("dst_y", being.get("y"));
         being.set("dir", b2 & 0x0F);
     }
 
