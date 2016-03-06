@@ -15,6 +15,10 @@ public class Utils {
         return int8toHex((v>>8)&0xFF)+int8toHex(v&0xFF);
     }
 
+    public static String int32toHex(int v) {
+        return int8toHex((v>>24)&0xFF)+int8toHex((v>>16)&0xFF)+int8toHex((v>>8)&0xFF)+int8toHex(v&0xFF);
+    }
+
     public static void clearTable(LuaValue table) {
         LuaValue k = LuaValue.NIL;
         while(true) {

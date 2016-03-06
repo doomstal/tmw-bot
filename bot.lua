@@ -1,6 +1,5 @@
 state = "leader_wait"
 
-leader_name = "doomstal"
 leader_id = -1
 leader = nil
 

@@ -1,3 +1,5 @@
+import java.io.BufferedReader;
+import java.io.FileReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -17,14 +19,6 @@ import org.luaj.vm2.lib.VarArgFunction;
 import org.luaj.vm2.lib.jse.JsePlatform;
 
 public class bot {
-    public String charServerIp;
-    public int charServerPort;
-
-    public int acid;
-    public int sid1;
-    public int sid2;
-    public int gender;
-
     public LuaTable character = new LuaTable();
     public LuaTable inventory = new LuaTable();
     public LuaTable equipment = new LuaTable();
@@ -42,19 +36,18 @@ public class bot {
 
     public Globals globals;
 
+    public String leader_name = "";
+
     public LuaValue script;
     public LuaValue loopBody;
     public LuaValue packetHandler;
 
-    public String mapServerIp;
-    public int mapServerPort;
-
     public String mapName;
 
-    boolean mapLoaded = true;
+    boolean sendMapLoaded = true;
     boolean quit = false;
 
-    Net net = new Net();
+    Net net;
     Semaphore writeLock = new Semaphore(1, true);
     Semaphore dataLock = new Semaphore(1, true);
 
@@ -113,7 +106,7 @@ public class bot {
         return valueOf(type);
     }
 
-    public void being_update_path(LuaValue being) {
+    public void beingUpdatePath(LuaValue being) {
         int x = being.get("x").toint();
         int y = being.get("y").toint();
         int dst_x = being.get("dst_x").toint();
@@ -122,7 +115,7 @@ public class bot {
             LuaValue path = being.get("path");
             int path_index = being.get("path_index").toint();
             if(path == NIL) {
-                being.set("path", map.find_path(x, y, dst_x, dst_y));
+                being.set("path", map.findPath(x, y, dst_x, dst_y));
                 being.set("path_index", 1);
                 return;
             }
@@ -131,7 +124,7 @@ public class bot {
             if(path_index > length
             || path.get(path_index).get("x").toint() !=x || path.get(path_index).get("y").toint() != y
             || path.get(length).get("x").toint() != dst_x || path.get(length).get("y").toint() != dst_y) {
-                being.set("path", map.find_path(x, y, dst_x, dst_y));
+                being.set("path", map.findPath(x, y, dst_x, dst_y));
                 being.set("path_index", 1);
             }
 
@@ -140,7 +133,7 @@ public class bot {
         }
     }
 
-    public void load_maps() {
+    public void loadMaps() {
         File[] files = new File("server-data/world/map/data").listFiles();
         for(File file: files) {
             if(!file.isDirectory()) {
@@ -153,20 +146,20 @@ public class bot {
         }
     }
 
-    public void load_warps() {
+    public void loadWarps() {
         Utils.clearTable(warps);
         File[] files = new File("server-data/world/map/npc").listFiles();
         for(File file: files) {
             if(file.isDirectory()) {
                 String name = file.getName();
                 if(name.matches("\\d\\d\\d-\\d")) {
-                    warps.set(name, load_warps(name));
+                    warps.set(name, loadWarps(name));
                 }
             }
         }
     }
 
-    public LuaValue load_warps(String map_name) {
+    public LuaValue loadWarps(String map_name) {
         try {
             File file = new File("server-data/world/map/npc/" + map_name + "/_warps.txt");
             if(!file.exists()) return NIL;
@@ -202,7 +195,7 @@ public class bot {
         return NIL;
     }
 
-    public void fill_itemDB() {
+    public void fillItemDB() {
         try {
             final String[] files = {
                 "item_db_chest", "item_db_foot",
@@ -246,7 +239,7 @@ public class bot {
         }
     }
 
-    public void update_character_stats() {
+    public void updateCharacterStats() {
         character.set("str", character.get("str_base").toint() + character.get("str_mod").toint());
         character.set("agi", character.get("agi_base").toint() + character.get("agi_mod").toint());
         character.set("vit", character.get("vit_base").toint() + character.get("vit_mod").toint());
@@ -263,11 +256,22 @@ public class bot {
     public bot() throws Exception {
         globals = JsePlatform.standardGlobals();
 
-        fill_itemDB();
-        load_maps();
-        load_warps();
+        File file = new File("config.txt");
+        BufferedReader br = new BufferedReader(new FileReader(file));
+        String username = br.readLine();
+        String password = br.readLine();
+        String charname = br.readLine();
+        String leader_name = br.readLine();
+        br.close();
 
+        fillItemDB();
+        loadMaps();
+        loadWarps();
+
+        net = new Net(username, password, charname);
         net.connect(this);
+
+        globals.set("leader_name", leader_name);
 
         globals.set("character", character);
         globals.set("inventory", inventory);
@@ -297,7 +301,7 @@ public class bot {
                 int x2 = args.arg(3).toint();
                 int y2 = args.arg(4).toint();
 
-                LuaValue ret = valueOf(map.is_accesible(x1, y1, x2, y2));
+                LuaValue ret = valueOf(map.isAccesible(x1, y1, x2, y2));
 
                 return varargsOf(new LuaValue[] {ret});
             }
@@ -313,7 +317,7 @@ public class bot {
                 LuaValue ret = NIL;
                 if(maps.containsKey(map_name)) {
                     Map map = maps.get(map_name);
-                    ret = valueOf(map.get_region(x, y));
+                    ret = valueOf(map.getRegion(x, y));
                 }
 
                 return varargsOf(new LuaValue[] {ret});
@@ -328,7 +332,7 @@ public class bot {
                 int x2 = args.arg(3).toint();
                 int y2 = args.arg(4).toint();
 
-                LuaValue ret = map.find_path(x1, y1, x2, y2);
+                LuaValue ret = map.findPath(x1, y1, x2, y2);
 
                 return varargsOf(new LuaValue[] {ret});
             }
@@ -660,7 +664,7 @@ public class bot {
                                 }
                                 pi.skip(5);
                                 if(!being.get("action").toString().equals("dead")) being.set("action", "stand");
-                                being_update_path(being);
+                                beingUpdatePath(being);
 //                                System.out.println("id="+id+" stun_mode="+stunMode+" status_effects="+statusEffects+" status_effect_block="+being.get("status_effect_block"));
                                 packetHandler.call(valueOf("being_update"), valueOf(id));
                             } break;
@@ -686,7 +690,7 @@ public class bot {
                                 if(being == NIL) being = createBeing(id, job);
                                 pi.readCoordinates(being);
                                 if(!being.get("action").toString().equals("dead")) being.set("action", "stand");
-                                being_update_path(being);
+                                beingUpdatePath(being);
                                 pi.skip(2);
                             } break;
                             case 0x0086: { // SMSG_BEING_MOVE_2
@@ -697,7 +701,7 @@ public class bot {
                                     pi.readCoordinatePair(being);
                                     pi.skip(4);
                                     if(!being.get("action").toString().equals("dead")) being.set("action", "stand");
-                                    being_update_path(being);
+                                    beingUpdatePath(being);
                                     packetHandler.call(valueOf("being_update"), valueOf(id));
                                 } else {
                                     pi.skip(7);
@@ -993,7 +997,7 @@ public class bot {
                                     if(!being.get("action").toString().equals("dead")) being.set("action", "stand");
                                 }
                                 pi.skip(2);
-                                being_update_path(being);
+                                beingUpdatePath(being);
                                 packetHandler.call(
                                     valueOf("player_update"),
                                     valueOf(id)
@@ -1488,7 +1492,7 @@ public class bot {
                             case 0x0087: { // SMSG_WALK_RESPONSE
                                 pi.skip(4);
                                 pi.readCoordinatePair(character);
-                                being_update_path(character);
+                                beingUpdatePath(character);
                                 packetHandler.call(valueOf("walk_response"));
                                 pi.skip(1);
                             } break;
@@ -1504,7 +1508,7 @@ public class bot {
                                     map = maps.get(dstMap);
                                     if(map == null) throw new RuntimeException("map "+dstMap+" doesn't exist!");
                                 }
-                                mapLoaded = true;
+                                sendMapLoaded = true;
                                 mapName = dstMap;
                                 System.out.println("map = "+mapName);
                                 globals.set("map_name", mapName);
@@ -1512,7 +1516,7 @@ public class bot {
                                 character.set("y", y);
                                 character.set("dst_x", x);
                                 character.set("dst_y", y);
-                                being_update_path(character);
+                                beingUpdatePath(character);
                                 packetHandler.call(valueOf("player_warp"));
                             } break;
                             case 0x00B0: { // SMSG_PLAYER_STAT_UPDATE_1
@@ -1546,7 +1550,7 @@ public class bot {
                                     case 0x0037: character.set("job_base", value); break;
                                     case 500: character.set("gm_level", value); break;
                                 }
-                                update_character_stats();
+                                updateCharacterStats();
                                 packetHandler.call(valueOf("char_update"));
                             } break;
                             case 0x00B1: { // SMSG_PLAYER_STAT_UPDATE_2
@@ -1591,7 +1595,7 @@ public class bot {
                                         character.set("luk_mod", bonus);
                                     break;
                                 }
-                                update_character_stats();
+                                updateCharacterStats();
                                 packetHandler.call(valueOf("char_update"));
                             } break;
                             case 0x00BC: { // SMSG_PLAYER_STAT_UPDATE_4
@@ -1607,7 +1611,7 @@ public class bot {
                                         case 4: character.set("dex_base", value); break;
                                         case 5: character.set("luk_base", value); break;
                                     }
-                                    update_character_stats();
+                                    updateCharacterStats();
                                 }
                                 packetHandler.call(valueOf("char_update"));
                             } break;
@@ -1638,7 +1642,7 @@ public class bot {
                                 character.set("evasion_mod", pi.readInt16());
                                 character.set("critical", pi.readInt16());
                                 pi.skip(4); // karma, manner
-                                update_character_stats();
+                                updateCharacterStats();
                                 packetHandler.call(valueOf("char_update"));
                             } break;
                             case 0x00BE: { // SMSG_PLAYER_STAT_UPDATE_6
@@ -1652,7 +1656,7 @@ public class bot {
                                     case 0x0024: character.set("dex_need", value); break;
                                     case 0x0025: character.set("luk_need", value); break;
                                 }
-                                update_character_stats();
+                                updateCharacterStats();
                                 packetHandler.call(valueOf("char_update"));
                             } break;
                             case 0x013B: { // SMSG_PLAYER_ARROW_MESSAGE
@@ -1818,14 +1822,14 @@ public class bot {
         while(!quit) {
             dataLock.acquire();
 
-            if(mapLoaded) {
+            if(sendMapLoaded) {
                 writeLock.acquire();
 
                 Net.PacketOut po = net.newPacket(0x007D); // CMSG_MAP_LOADED
                 po.send();
 
                 writeLock.release();
-                mapLoaded = false;
+                sendMapLoaded = false;
             }
 
             clientTime = (int)(System.nanoTime() / 1000000);
@@ -1848,7 +1852,7 @@ public class bot {
                     int dir = being.get("dir").toint();
 
                     if(path == NIL) {
-                        path = map.find_path(x, y, dst_x, dst_y);
+                        path = map.findPath(x, y, dst_x, dst_y);
                         path_index = 1;
                     }
                     if(path != NIL) {

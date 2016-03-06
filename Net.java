@@ -1,6 +1,3 @@
-import java.io.BufferedReader;
-import java.io.FileReader;
-import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.IOException;
@@ -14,15 +11,28 @@ import org.luaj.vm2.LuaTable;
 public class Net {
     public static int packetLength[];
 
+    String username;
+    String password;
+    String charname;
+
+    int sid1;
+    int acid;
+    int sid2;
+    int gender;
+
+    String charServerIp;
+    int charServerPort;
+
+    String mapServerIp;
+    int mapServerPort;
+
     Socket sock;
 
-    int packet = -1;
-    int recv_bytes = 0;
-    int send_packet = -1;
-    int send_bytes = 0;
-    int length = -2;
-
-    public Net() { }
+    public Net(String username, String password, String charname) {
+        this.username = username;
+        this.password = password;
+        this.charname = charname;
+    }
 
     public class PacketIn {
         byte[] buffer = new byte[2048];
@@ -337,12 +347,6 @@ public class Net {
     }
 
     public void connect(bot b) throws IOException {
-        File file = new File("config.txt");
-        BufferedReader br = new BufferedReader(new FileReader(file));
-        String username = br.readLine();
-        String password = br.readLine();
-        String charname = br.readLine();
-
         System.out.println("connecting to login server");
 
         sock = new Socket("server.themanaworld.org", 6901); // login server
@@ -364,18 +368,18 @@ public class Net {
                     System.out.println("login error");
                     System.exit(1);
                 case 0x0081:
-                    System.out.println("connection problem");
+                    System.out.println("connection problem: "+pi.readInt8());
                     System.exit(1);
             }
         }
         int worldCount = (pi.getLength() - 47) / 32;
-        b.sid1 = pi.readInt32();
-        b.acid = pi.readInt32();
-        b.sid2 = pi.readInt32();
+        sid1 = pi.readInt32();
+        acid = pi.readInt32();
+        sid2 = pi.readInt32();
         pi.skip(30);
-        b.gender = pi.readInt8();
-        b.charServerIp = ""+pi.readInt8()+"."+pi.readInt8()+"."+pi.readInt8()+"."+pi.readInt8();
-        b.charServerPort = pi.readInt16();
+        gender = pi.readInt8();
+        charServerIp = ""+pi.readInt8()+"."+pi.readInt8()+"."+pi.readInt8()+"."+pi.readInt8();
+        charServerPort = pi.readInt16();
         String name = pi.readString(20);
         int online = pi.readInt16();
         pi.skip();
@@ -383,17 +387,21 @@ public class Net {
 
         sock.close(); // disconnect from login server
 
-        System.out.println(b.charServerIp+":"+b.charServerPort+" "+name+" ("+online+')');
+        System.out.println(Utils.int32toHex(sid1));
+        System.out.println(Utils.int32toHex(acid));
+        System.out.println(Utils.int32toHex(sid2));
+
+        System.out.println(charServerIp+":"+charServerPort+" "+name+" ("+online+')');
         System.out.println("connecting to char server");
 
-        sock = new Socket(b.charServerIp, b.charServerPort); // char server
+        sock = new Socket(charServerIp, charServerPort); // char server
 
         po = newPacket(0x0065); // character server connection request
-        po.writeInt32(b.acid);
-        po.writeInt32(b.sid1);
-        po.writeInt32(b.sid2);
+        po.writeInt32(acid);
+        po.writeInt32(sid1);
+        po.writeInt32(sid2);
         po.writeInt16(1);
-        po.writeInt8(b.gender);
+        po.writeInt8(gender);
         po.send();
 
         sock.getInputStream().skip(4);
@@ -478,23 +486,23 @@ public class Net {
         }
         pi.skip(4);
         b.mapName = pi.readString(16);
-        b.mapServerIp = ""+pi.readInt8()+"."+pi.readInt8()+"."+pi.readInt8()+"."+pi.readInt8();
-        b.mapServerPort = pi.readInt16();
+        mapServerIp = ""+pi.readInt8()+"."+pi.readInt8()+"."+pi.readInt8()+"."+pi.readInt8();
+        mapServerPort = pi.readInt16();
         pi.close();
 
         sock.close();
 
-        System.out.println(b.mapServerIp + ":" + b.mapServerPort + " " + b.mapName);
+        System.out.println(mapServerIp + ":" + mapServerPort + " " + b.mapName);
         System.out.println("connecting to map server");
 
-        sock = new Socket(b.mapServerIp, b.mapServerPort); // map server
+        sock = new Socket(mapServerIp, mapServerPort); // map server
 
         po = newPacket(0x0072); // CMSG_MAP_SERVER_CONNECT
-        po.writeInt32(b.acid);
+        po.writeInt32(acid);
         po.writeInt32(b.character.get("id").toint());
-        po.writeInt32(b.sid1);
-        po.writeInt32(b.sid2);
-        po.writeInt8(b.gender);
+        po.writeInt32(sid1);
+        po.writeInt32(sid2);
+        po.writeInt8(gender);
         po.send();
 
         sock.getInputStream().skip(4);
@@ -502,6 +510,9 @@ public class Net {
         pi = readPacket();
         if(pi.getId() != 0x0073) {
             System.out.println("unexpected packet");
+            if(pi.getId() == 0x0081) {
+                System.out.println("connection problem: "+pi.readInt8());
+            }
             System.out.println(pi);
             System.exit(1);
         }
