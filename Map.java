@@ -20,18 +20,21 @@ public class Map {
 
     static int costsWidth = 500;
     static int costsHeight = 500;
-    static int[][] threat = null;
     static int[][] costs = null;
     static Direction[][] directions = null;
 
+    static int[][] threat = null;
+    static int[][] threatTotal = null;
     static int[][] costsBot = null;
     static Direction[][] directionsBot = null;
     static int[][] lengthBot = null;
 
     static void initArrays() {
-        threat = new int[costsHeight][costsWidth];
         costs = new int[costsHeight][costsWidth];
         directions = new Direction[costsHeight][costsWidth];
+
+        threat = new int[costsHeight][costsWidth];
+        threatTotal = new int[costsHeight][costsWidth];
         costsBot = new int[costsHeight][costsWidth];
         directionsBot = new Direction[costsHeight][costsWidth];
         lengthBot = new int[costsHeight][costsWidth];
@@ -158,12 +161,14 @@ public class Map {
         public int x;
         public int y;
         public int cost;
+        public int threat;
         public int length;
         public Direction dir;
-        Position(int x, int y, int cost, int length, Direction dir) {
+        Position(int x, int y, int cost, int threat, int length, Direction dir) {
             this.x = x;
             this.y = y;
             this.cost = cost;
+            this.threat = threat;
             this.length = length;
             this.dir = dir;
         }
@@ -223,6 +228,7 @@ public class Map {
         for(int j = 0; j != height; ++j) {
             for(int i=0; i != width; ++i) {
                 threat[j][i] = 0;
+                threatTotal[j][i] = 0;
             }
         }
     }
@@ -235,6 +241,10 @@ public class Map {
 
     public int getThreat(int x, int y) {
         return threat[y][x];
+    }
+
+    public int getThreatTotal(int x, int y) {
+        return threatTotal[y][x];
     }
 
     public LuaValue findPath(int lx1, int ly1, int lx2, int ly2, boolean checkThreat) {
@@ -274,7 +284,7 @@ public class Map {
         }
 
         walk.clear();
-        walk.add(new Position(x1, y1, checkThreat ? threat[y1][x1] : 0, 1, Direction.NONE));
+        walk.add(new Position(x1, y1, checkThreat ? threat[y1][x1] : 0, threat[y1][x1], 1, Direction.NONE));
 
         while(!walk.isEmpty()) {
             Position p = (Position)walk.remove();
@@ -347,7 +357,7 @@ public class Map {
         }
 
         walk.clear();
-        walk.add(new Position(x1, y1, threat[y1][x1], 1, Direction.NONE));
+        walk.add(new Position(x1, y1, threat[y1][x1], threat[y1][x1], 1, Direction.NONE));
 
         while(!walk.isEmpty()) {
             Position p = (Position)walk.remove();
@@ -357,6 +367,7 @@ public class Map {
             costsBot[p.y][p.x] = p.cost;
             directionsBot[p.y][p.x] = p.dir;
             lengthBot[p.y][p.x] = p.length;
+            threatTotal[p.y][p.x] = p.threat;
 
             checkWalkableAdd(p, 1, -1, Direction.UR, true);
             checkWalkableAdd(p, 1, 1, Direction.DR, true);
@@ -440,7 +451,8 @@ public class Map {
     void checkWalkableAdd(Position p, int dx, int dy, Direction dir, boolean checkThreat) {
         int cost = 10;
         if(dx!=0 && dy!=0) cost = 14;
-        if(checkThreat) cost += threat[p.y + dy][p.x + dx];
-        if(walkable(p.x, p.y, dx, dy)) walk.add(new Position(p.x + dx, p.y + dy, p.cost + cost, p.length + 1, dir));
+        int t = threat[p.y + dy][p.x + dx];
+        if(checkThreat) cost += t;
+        if(walkable(p.x, p.y, dx, dy)) walk.add(new Position(p.x + dx, p.y + dy, p.cost + cost, p.threat + t, p.length + 1, dir));
     }
 }

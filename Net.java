@@ -501,6 +501,8 @@ public class Net {
         po.writeInt8(gender);
         po.send();
 
+        b.character.set("id", acid);
+
         sock.getInputStream().skip(4);
 
         pi = readPacket();

@@ -84,8 +84,11 @@ doesn't actually update inventory
 "sell_response"              (bool) b_success
 doesn't actually update inventory
 
+"item_drop"                  (int) id
+item dropped
+
 "item_update"                (int) id
-item either dropped or become visible
+item become visible
 
 "item_remove"                (int) id
 item disappeared / out of sight

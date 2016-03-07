@@ -363,6 +363,7 @@ public class bot {
         net.connect(this);
 
         globals.set("leader_name", leader_name);
+        globals.set("client_time", 0);
 
         globals.set("character", character);
         globals.set("inventory", inventory);
@@ -465,6 +466,18 @@ public class bot {
                 int y = args.arg(2).toint();
 
                 LuaValue ret = valueOf(map.getThreat(x, y));
+
+                return varargsOf(new LuaValue[] {ret});
+            }
+        });
+
+        globals.set("map_get_threat_total", new VarArgFunction() {
+            @Override
+            public Varargs invoke(Varargs args) {
+                int x = args.arg(1).toint();
+                int y = args.arg(2).toint();
+
+                LuaValue ret = valueOf(map.getThreatTotal(x, y));
 
                 return varargsOf(new LuaValue[] {ret});
             }
@@ -821,7 +834,7 @@ public class bot {
                                 LuaValue being = beings.get(id);
                                 if(being == NIL) being = createBeing(id, job);
                                 pi.readCoordinates(being);
-                                if(!being.get("action").toString().equals("dead")) being.set("action", "stand");
+                                being.set("action", "stand");
                                 beingUpdatePath(being);
                                 pi.skip(2);
                             } break;
@@ -896,7 +909,6 @@ public class bot {
                             } break;
                             case 0x008A: { // SMSG_BEING_ACTION (29)
                                 int srcId = pi.readInt32();
-                                if(srcId == character.get("id").toint()) System.out.println("character being_action src");
                                 int dstId = pi.readInt32();
                                 LuaValue srcBeing = beings.get(srcId);
                                 LuaValue dstBeing = beings.get(dstId);
@@ -926,6 +938,10 @@ public class bot {
                                     case 0x03: // stand up
                                         typeStr = "stand";
                                     break;
+                                }
+                                if(!dstBeing.isnil() && dstBeing.get("type").toString().equals("monster")
+                                && (typeStr.equals("hit") || typeStr.equals("critical") || typeStr.equals("multi")) ) {
+                                    dstBeing.set("walk_time", 0);
                                 }
                                 if(typeStr.equals("sit") || typeStr.equals("stand")) {
                                     if(srcBeing != NIL) srcBeing.set("action", typeStr);
@@ -1576,7 +1592,11 @@ public class bot {
                                 item.set("y", pi.readInt16());
                                 pi.skip(4); // amount,subX,subY / subX,subY,amount
                                 items.set(id, item);
-                                packetHandler.call(valueOf("item_update"), valueOf(id));
+                                if(packet == 0x009D) {
+                                    packetHandler.call(valueOf("item_update"), valueOf(id));
+                                } else {
+                                    packetHandler.call(valueOf("item_drop"), valueOf(id));
+                                }
                             } break;
                             case 0x00A1: { // SMSG_ITEM_REMOVE
                                 int id = pi.readInt32();
@@ -2079,7 +2099,7 @@ public class bot {
         //                int path_index = being.get("path_index").toint();
                         int range = beingClass.get("range").toint();
                         int threat_range = 2;
-//                        if(beingClass.get("speed").toint() > 500) threat_range = 1;
+                        if(beingClass.get("speed").toint() > 500) threat_range = 1;
                         for(int j = y - range - threat_range; j != y + range + threat_range; ++j) {
                             for(int i = x - range - threat_range; i != x + range + threat_range; ++i) {
                                 map.addThreat(i, j, 1000);

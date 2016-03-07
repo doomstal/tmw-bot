@@ -9,6 +9,8 @@ koga_destination = nil
 
 trade_confirm_me = false
 trade_confirm_other = false
+trading_leader = false
+trading_count = 0
 
 route = nil
 route_destination = nil
@@ -76,6 +78,7 @@ old_state = nil
 
 function loop_body()
     check_attribute_increase()
+    if trading_leader then check_trade_add() end
 
     if state ~= old_state then
         str = "new_state = "..state.." | stack ="
@@ -225,17 +228,22 @@ function loop_body()
             if drop then
                 targetx = drop.x
                 targety = drop.y
-                if dist <= 1 then
+                if dist < 1 then
                     send_packet("pickup", drop.id)
-                    drop.picked = true
+                    drop.pickup = false
                 end
             end
 
             if map_get_threat(targetx, targety) > 0 then
-                local p = map_nearest_safe_spot(targetx, targety, 10);
-                if p then
-                    targetx = p.x
-                    targety = p.y
+                if map_get_threat(character.x, character.y) == 0 then
+                    targetx = character.x
+                    targety = character.y
+                else
+                    local p = map_nearest_safe_spot(targetx, targety, 10);
+                    if p then
+                        targetx = p.x
+                        targety = p.y
+                    end
                 end
             end
             local dist = math.max(math.abs(character.x-targetx),math.abs(character.y-targety))
@@ -422,12 +430,43 @@ function packet_handler(...)
             if args[2] == leader_id and beings[args[3]] then
                 beings[args[3]].enemy = true
             end
+            if args[3] == character.id then
+                print(character.hp - args[5], character.hp_max)
+            end
+            if args[2] == character.id then
+                beings[args[3]].mydrop = true
+            end
         end
 --    elseif args[1] == "being_attack" then
 --        print("being_attack "..args[2].." "..args[3].." "..args[4])
 --        if args[2] == leader_id and beings[args[3]] then
 --            beings[args[3]].enemy = true
 --        end
+    elseif args[1] == "being_selfeffect" then
+        if args[2] == character.id then
+            print("effect "..args[3])
+            if args[3] == 3 then
+                print(character.hp, character.hp_max)
+            end
+        end
+    elseif args[1] == "being_remove" then
+        local being = beings[args[2]]
+        if being then
+            if being.action == "dead" then
+                being.death_time = client_time
+            end
+--            beings[args[2]] = nil
+        end
+    elseif args[1] == "being_update" then
+        local being = beings[args[2]]
+        if being then
+            if being.death_time and client_time > being.death_time + 2000 then
+                beings[args[2]] = nil
+            end
+        end
+    elseif args[1] == "item_drop" then
+        local drop = items[args[2]]
+        if drop_is_mine(drop) then drop.pickup = true end
     elseif args[1] == "player_chat" then
         if args[2] then print("[!] "..args[3])
         else print("[g] "..args[3]) end
@@ -459,6 +498,8 @@ function packet_handler(...)
     elseif args[1] == "trade_request" then
         if args[2] == leader_name then
             send_packet("trade_response", true)
+            trading_leader = true
+            trading_count = 0
         else
             send_packet("trade_response", false)
         end
@@ -473,6 +514,7 @@ function packet_handler(...)
         end
         if trade_confirm_me and trade_confirm_other then
             send_packet("trade_finish")
+            trading_leader = false
         end
     end
 end
@@ -487,6 +529,8 @@ attribute_sequence = {
 
 increase_time = client_time
 function check_attribute_increase()
+    if increase_time > client_time then return end
+
     local to_increase = nil
     local level
     for _, attr in ipairs(attribute_sequence) do
@@ -503,11 +547,45 @@ function check_attribute_increase()
 
     if not to_increase then return end
 
-    if increase_time > client_time then return end
-
     increase_time = client_time + 200
     send_packet("increase_attribute", to_increase)
     print("increase_attribute "..to_increase.." to "..(level+1))
+end
+
+dont_trade = {}
+dont_trade["Arrow"] = 3000
+dont_trade["RedApple"] = 100
+
+trade_add_time = client_time
+function check_trade_add()
+    if trading_count >= 10 then return end
+    if trade_add_time > client_time then return end
+
+    local index = nil
+    local amount = nil
+
+    for ind, item in pairs(inventory) do
+        local amount_have = item.amount
+        if trade_buy[item.id] then
+            amount_have = amount_have + trade_buy[item.id].amount
+        end
+        if (not dont_trade[item.name] or amount_have > dont_trade[item.name]) and (not trade_sell[ind]) then
+            index = ind
+            amount = item.amount
+            if dont_trade[item.name] then
+                amount = amount_have - dont_trade[item.name]
+            end
+            if not amount then amount = 1 end
+            trading_count = trading_count + 1
+            print("selling "..item.name)
+            break
+        end
+    end
+
+    if not index then return end
+
+    trade_add_time = client_time + 500
+    send_packet("trade_add", index, amount)
 end
 
 attack_time = client_time
@@ -593,6 +671,16 @@ function find_being_race(race)
     end
 end
 
+function drop_is_mine(drop)
+    for _, being in pairs(beings) do
+        if being.action == "dead" and being.mydrop then
+            local dist = math.max(math.abs(drop.x - being.x), math.abs(drop.y - being.y))
+            if dist < 2 then return true end
+        end
+    end
+    return false
+end
+
 function nearest_being(x, y, typ)
     if not typ then typ = "monster" end
     local ret = nil
@@ -616,7 +704,7 @@ function nearest_safe_drop(x, y, range)
     for _, drop in pairs(items) do
         local dist = math.max(math.abs(drop.x - x), math.abs(drop.y - y))
 
-        if dist < range and (not drop.picked) and map_get_threat(drop.x, drop.y) == 0 then
+        if dist < range and drop.pickup and map_get_threat_total(drop.x, drop.y) == 0 then
             if not ret_dist or dist < ret_dist then
                 ret = drop
                 ret_dist = dist
