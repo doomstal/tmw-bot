@@ -387,10 +387,6 @@ public class Net {
 
         sock.close(); // disconnect from login server
 
-        System.out.println(Utils.int32toHex(sid1));
-        System.out.println(Utils.int32toHex(acid));
-        System.out.println(Utils.int32toHex(sid2));
-
         System.out.println(charServerIp+":"+charServerPort+" "+name+" ("+online+')');
         System.out.println("connecting to char server");
 

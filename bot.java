@@ -33,6 +33,7 @@ public class bot {
     public int clientTime = 0;
 
     public LuaTable itemDB = new LuaTable();
+    public LuaTable mobDB = new LuaTable();
 
     public Globals globals;
 
@@ -107,6 +108,10 @@ public class bot {
     }
 
     public void beingUpdatePath(LuaValue being) {
+        if(being.get("id").toint() == character.get("id").toint()) {
+            being.set("path", NIL);
+        }
+
         int x = being.get("x").toint();
         int y = being.get("y").toint();
         int dst_x = being.get("dst_x").toint();
@@ -115,7 +120,7 @@ public class bot {
             LuaValue path = being.get("path");
             int path_index = being.get("path_index").toint();
             if(path == NIL) {
-                being.set("path", map.findPath(x, y, dst_x, dst_y));
+                being.set("path", map.findPath(x, y, dst_x, dst_y, false));
                 being.set("path_index", 1);
                 return;
             }
@@ -124,7 +129,7 @@ public class bot {
             if(path_index > length
             || path.get(path_index).get("x").toint() !=x || path.get(path_index).get("y").toint() != y
             || path.get(length).get("x").toint() != dst_x || path.get(length).get("y").toint() != dst_y) {
-                being.set("path", map.findPath(x, y, dst_x, dst_y));
+                being.set("path", map.findPath(x, y, dst_x, dst_y, false));
                 being.set("path_index", 1);
             }
 
@@ -239,6 +244,91 @@ public class bot {
         }
     }
 
+    public void fillMobDB() {
+        try {
+            final String[] files = {
+                "mob_db_0_19", "mob_db_20_39",
+                "mob_db_40_59", "mob_db_60_79",
+                "mob_db_80_99", "mob_db_over_100"
+            };
+            for(String name: files) {
+                Scanner s = new Scanner(new FileInputStream(new File("server-data/world/map/db/"+name+".txt")));
+
+                while(s.hasNextLine()) {
+                    String line = s.nextLine();
+                    if(line.length() > 0 && !line.startsWith("//")) {
+                        Scanner s2 = new Scanner(line);
+                        s2.useDelimiter(",\\s*");
+                        LuaTable mob = new LuaTable();
+                        int id = s2.nextInt();
+                        mob.set("id", id);
+                        mob.set("name", s2.next());
+                        s2.next(); // jname, always same as name
+                        mob.set("level", s2.nextInt());
+                        mob.set("hp", s2.nextInt());
+                        s2.next(); // mp, not used
+                        s2.next(); // exp, calculated automatically
+                        mob.set("jexp", s2.nextInt());
+                        mob.set("range", s2.nextInt());
+                        mob.set("atk", s2.nextInt());
+                        mob.set("atk_max", s2.nextInt());
+                        mob.set("def", s2.nextInt()); // in percents
+                        mob.set("mdef", s2.nextInt()); // in percents
+                        mob.set("str", s2.nextInt());
+                        mob.set("agi", s2.nextInt());
+                        mob.set("vit", s2.nextInt());
+                        mob.set("int", s2.nextInt());
+                        mob.set("dex", s2.nextInt());
+                        mob.set("luk", s2.nextInt());
+                        s2.nextInt(); // range2, unused
+                        s2.nextInt(); // range3, unused
+                        s2.nextInt(); // scale, unused
+                        mob.set("race", s2.nextInt());
+                        // 0 - formless
+                        // 1 - undead
+                        // 2 - animal
+                        // 3 - plant
+                        // 4 - insect
+                        // 5 - fish
+                        // 6 - demon
+                        // 7 - demihuman
+                        // 8 - angel
+                        // 9 - dragon
+                        mob.set("element", s2.nextInt());
+                        int mode = s2.nextInt();
+                        LuaTable modet = new LuaTable();
+                        if((mode & 0x01) != 0) modet.set("moving", TRUE);
+                        if((mode & 0x02) != 0) modet.set("looter", TRUE);
+                        if((mode & 0x04) != 0) modet.set("aggressive", TRUE);
+                        if((mode & 0x08) != 0) modet.set("support", TRUE);
+                        if((mode & 0x80) != 0) modet.set("attack", TRUE);
+                        mob.set("mode", modet);
+                        // 1 - can move
+                        // 2 - looter
+                        // 4 - aggressive
+                        // 8 - support
+                        // 16 - castsensor, no effect
+                        // 32 - boss, effect unknown
+                        // 64 - plant, effect unknown
+                        // 128 - can attack
+                        // 256 - detector, no effect
+                        // 512 - changetarget, no effect
+                        mob.set("speed", s2.nextInt());
+                        mob.set("adelay", s2.nextInt());
+                        mob.set("amotion", s2.nextInt());
+                        mob.set("dmotion", s2.nextInt()); // stun delay
+                        // ignore the rest
+                        // currently not reading drops
+                        mobDB.set(id, mob);
+                    }
+                }
+            }
+        } catch(Exception e) {
+            e.printStackTrace();
+            System.exit(1);
+        }
+    }
+
     public void updateCharacterStats() {
         character.set("str", character.get("str_base").toint() + character.get("str_mod").toint());
         character.set("agi", character.get("agi_base").toint() + character.get("agi_mod").toint());
@@ -265,6 +355,7 @@ public class bot {
         br.close();
 
         fillItemDB();
+        fillMobDB();
         loadMaps();
         loadWarps();
 
@@ -287,6 +378,7 @@ public class bot {
         globals.set("client_time", clientTime);
         globals.set("warps", warps);
         globals.set("itemDB", itemDB);
+        globals.set("mobDB", mobDB);
 
         map = maps.get(mapName);
         if(map == null) throw new RuntimeException("map "+mapName+" doesn't exist!");
@@ -331,8 +423,48 @@ public class bot {
                 int y1 = args.arg(2).toint();
                 int x2 = args.arg(3).toint();
                 int y2 = args.arg(4).toint();
+                boolean checkThreat = args.arg(5).toboolean();
 
-                LuaValue ret = map.findPath(x1, y1, x2, y2);
+                LuaValue ret = map.findPath(x1, y1, x2, y2, checkThreat);
+
+                return varargsOf(new LuaValue[] {ret});
+            }
+        });
+
+        globals.set("map_bot_path", new VarArgFunction() {
+            @Override
+            public Varargs invoke(Varargs args) {
+                int x1 = args.arg(1).toint();
+                int y1 = args.arg(2).toint();
+                int x2 = args.arg(3).toint();
+                int y2 = args.arg(4).toint();
+
+                LuaValue ret = map.findBotPath(x1, y1, x2, y2);
+
+                return varargsOf(new LuaValue[] {ret});
+            }
+        });
+
+        globals.set("map_nearest_safe_spot", new VarArgFunction() {
+            @Override
+            public Varargs invoke(Varargs args) {
+                int x1 = args.arg(1).toint();
+                int y1 = args.arg(2).toint();
+                int radius = args.arg(3).toint();
+
+                LuaValue ret = map.nearestSafeSpot(x1, y1, radius);
+
+                return varargsOf(new LuaValue[] {ret});
+            }
+        });
+
+        globals.set("map_get_threat", new VarArgFunction() {
+            @Override
+            public Varargs invoke(Varargs args) {
+                int x = args.arg(1).toint();
+                int y = args.arg(2).toint();
+
+                LuaValue ret = valueOf(map.getThreat(x, y));
 
                 return varargsOf(new LuaValue[] {ret});
             }
@@ -509,12 +641,12 @@ public class bot {
                             String attr_name = args.arg(2).toString();
                             int attr = -1;
                             switch(attr_name) {
-                                case "str": attr = 0; break;
-                                case "agi": attr = 1; break;
-                                case "vit": attr = 2; break;
-                                case "int": attr = 3; break;
-                                case "dex": attr = 4; break;
-                                case "luk": attr = 5; break;
+                                case "str": attr = 13; break;
+                                case "agi": attr = 14; break;
+                                case "vit": attr = 15; break;
+                                case "int": attr = 16; break;
+                                case "dex": attr = 17; break;
+                                case "luk": attr = 18; break;
                             }
                             if(attr == -1) break;
                             po = net.newPacket(0x00BB); // CMSG_STAT_UPDATE_REQUEST
@@ -1490,11 +1622,12 @@ public class bot {
                                 packetHandler.call(valueOf("npc_str_input"), valueOf(npcId));
                             } break;
                             case 0x0087: { // SMSG_WALK_RESPONSE
-                                pi.skip(4);
+                                pi.skip();
+/*                                pi.skip(4);
                                 pi.readCoordinatePair(character);
                                 beingUpdatePath(character);
                                 packetHandler.call(valueOf("walk_response"));
-                                pi.skip(1);
+                                pi.skip(1);*/
                             } break;
                             case 0x0091: { // SMSG_PLAYER_WARP
                                 Utils.clearTable(beings);
@@ -1570,27 +1703,27 @@ public class bot {
                                 int base = pi.readInt32();
                                 int bonus = pi.readInt32();
                                 switch(type) {
-                                    case 0:
+                                    case 13:
                                         character.set("str_base", base);
                                         character.set("str_mod", bonus);
                                     break;
-                                    case 1:
+                                    case 14:
                                         character.set("agi_base", base);
                                         character.set("agi_mod", bonus);
                                     break;
-                                    case 2:
+                                    case 15:
                                         character.set("vit_base", base);
                                         character.set("vit_mod", bonus);
                                     break;
-                                    case 3:
+                                    case 16:
                                         character.set("int_base", base);
                                         character.set("int_mod", bonus);
                                     break;
-                                    case 4:
+                                    case 17:
                                         character.set("dex_base", base);
                                         character.set("dex_mod", bonus);
                                     break;
-                                    case 5:
+                                    case 18:
                                         character.set("luk_base", base);
                                         character.set("luk_mod", bonus);
                                     break;
@@ -1604,12 +1737,12 @@ public class bot {
                                 int value = pi.readInt8();
                                 if(ok == 1) {
                                     switch(type) {
-                                        case 0: character.set("str_base", value); break;
-                                        case 1: character.set("agi_base", value); break;
-                                        case 2: character.set("vit_base", value); break;
-                                        case 3: character.set("int_base", value); break;
-                                        case 4: character.set("dex_base", value); break;
-                                        case 5: character.set("luk_base", value); break;
+                                        case 13: character.set("str_base", value); break;
+                                        case 14: character.set("agi_base", value); break;
+                                        case 15: character.set("vit_base", value); break;
+                                        case 16: character.set("int_base", value); break;
+                                        case 17: character.set("dex_base", value); break;
+                                        case 18: character.set("luk_base", value); break;
                                     }
                                     updateCharacterStats();
                                 }
@@ -1833,6 +1966,7 @@ public class bot {
             }
 
             clientTime = (int)(System.nanoTime() / 1000000);
+//            System.out.println(clientTime);
             globals.set("client_time", clientTime);
 
             LuaValue k = NIL;
@@ -1852,7 +1986,8 @@ public class bot {
                     int dir = being.get("dir").toint();
 
                     if(path == NIL) {
-                        path = map.findPath(x, y, dst_x, dst_y);
+                        if(being.get("id").toint() == character.get("id").toint()) continue;
+                        path = map.findPath(x, y, dst_x, dst_y, false);
                         path_index = 1;
                     }
                     if(path != NIL) {
@@ -1863,6 +1998,20 @@ public class bot {
                             walk_time = clientTime + being.get("speed").toint();
                             LuaValue p = path.get(path_index);
                             if(p.get("x").toint() != x || p.get("y").toint() != y) {
+                                if(being.get("id").toint() == character.get("id").toint()) {
+                                    System.out.println("path position mismatch!");
+                                    System.out.println("id="+being.get("id"));
+                                    if(being.get("name")!=NIL) System.out.println("name="+being.get("name"));
+                                    System.out.println("x=" + x + " y=" + y);
+                                    System.out.println("dst_x="+dst_x+" dst_y="+dst_y);
+                                    System.out.println("path_index="+path_index);
+                                    for(int i=1; i<=length; ++i) {
+                                        p = path.get(i);
+                                        System.out.println(p.get("x") + ", "+p.get("y"));
+                                    }
+                                    path = NIL;
+                                    break;
+                                }
                                 System.out.println("path position mismatch!");
                                 System.out.println("id="+being.get("id"));
                                 if(being.get("name")!=NIL) System.out.println("name="+being.get("name"));
@@ -1911,6 +2060,35 @@ public class bot {
                     being.set("path", NIL);
                 }
             }
+
+            // calculate threat
+            map.clearThreat();
+            while(true) {
+                Varargs n = beings.next(k);
+                if( (k = n.arg1()).isnil() )
+                    break;
+                LuaValue being = n.arg(2);
+                if(being.get("action").toString().equals("dead")) continue;
+                LuaValue beingClass = mobDB.get( being.get("race") );
+                if(!beingClass.isnil()) {
+                    if(being.get("enemy").toboolean() || beingClass.get("mode").get("aggressive").toboolean()) {
+//                        System.out.println(being.get("action"));
+                        int x = being.get("x").toint();
+                        int y = being.get("y").toint();
+        //                LuaValue path = being.get("path");
+        //                int path_index = being.get("path_index").toint();
+                        int range = beingClass.get("range").toint();
+                        int threat_range = 2;
+//                        if(beingClass.get("speed").toint() > 500) threat_range = 1;
+                        for(int j = y - range - threat_range; j != y + range + threat_range; ++j) {
+                            for(int i = x - range - threat_range; i != x + range + threat_range; ++i) {
+                                map.addThreat(i, j, 1000);
+                            }
+                        }
+                    }
+                }
+            }
+            map.fillBotPath(character.get("x").toint(), character.get("y").toint(), 10);
 
             LuaValue ret = loopBody.call();
             if(ret == FALSE) {

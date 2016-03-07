@@ -75,6 +75,8 @@ state_stack = {
 old_state = nil
 
 function loop_body()
+    check_attribute_increase()
+
     if state ~= old_state then
         str = "new_state = "..state.." | stack ="
         for _,v in ipairs(state_stack) do str = str.." "..v end
@@ -197,6 +199,12 @@ function loop_body()
         leader_y = leader.dst_y
 
         if leader.action == "stand" then -- walking also fits here
+            -- mob hunting
+            local mob = nearest_enemy_mob(character.x, character.y, character.range)
+            if mob then
+                attack(mob)
+            end
+
             -- calculate target position to be one cell from leader
             local targetx = leader.dst_x
             local targety = leader.dst_y
@@ -212,6 +220,24 @@ function loop_body()
             end
             targetx = targetx + dx
             targety = targety + dy
+
+            local drop, dist = nearest_safe_drop(character.x, character.y, 8)
+            if drop then
+                targetx = drop.x
+                targety = drop.y
+                if dist <= 1 then
+                    send_packet("pickup", drop.id)
+                    drop.picked = true
+                end
+            end
+
+            if map_get_threat(targetx, targety) > 0 then
+                local p = map_nearest_safe_spot(targetx, targety, 10);
+                if p then
+                    targetx = p.x
+                    targety = p.y
+                end
+            end
             local dist = math.max(math.abs(character.x-targetx),math.abs(character.y-targety))
             if dist > 0 then
                 walk(targetx, targety)
@@ -390,6 +416,18 @@ function packet_handler(...)
         local id = args[2]
         if beings[id] and beings[id].name then print("[b] "..beings[id].name.." : "..args[3])
         else print("[b] ["..args[2].."] : "..args[3]) end
+    elseif args[1] == "being_action" then
+        if args[4] == "hit" or args[4] == "critical" or args[4] == "multi" or args[4] == "flee" then
+--            print("being_action "..args[2].." "..args[3].." "..args[4].." "..args[5])
+            if args[2] == leader_id and beings[args[3]] then
+                beings[args[3]].enemy = true
+            end
+        end
+--    elseif args[1] == "being_attack" then
+--        print("being_attack "..args[2].." "..args[3].." "..args[4])
+--        if args[2] == leader_id and beings[args[3]] then
+--            beings[args[3]].enemy = true
+--        end
     elseif args[1] == "player_chat" then
         if args[2] then print("[!] "..args[3])
         else print("[g] "..args[3]) end
@@ -441,27 +479,80 @@ end
 
 ----------------------------------------
 
-walk_time = client_time
-function walk(x, y)
-    if character.action == "dead" then return end
---    print(character.dst_x, x, character.dst_y, y)
+attribute_sequence = {
+    {name = "dex", value = 97},
+    {name = "agi", value = 96},
+    {name = "vit", value = 90}
+}
 
-    if math.max(math.abs(character.x-x),math.abs(character.y-y)) > 10 then
-        local path = map_find_path(character.x, character.y, x, y)
-        if path and #path > 10 then
-            x = path[10].x
-            y = path[10].y
-        end
-        if not path then
-            print("not path", character.x, character.y, character.dst_x, character.dst_y, x, y)
+increase_time = client_time
+function check_attribute_increase()
+    local to_increase = nil
+    local level
+    for _, attr in ipairs(attribute_sequence) do
+        level = character[ attr.name .. "_base" ]
+        local need = character[ attr.name .. "_need" ]
+        if (not level) or (not need) then return end
+        if level < attr.value then
+            if need < character.char_points then
+                to_increase = attr.name
+            end
+            break
         end
     end
 
-    if character.dst_x==x and character.dst_y==y then return end
---    print(character.x, character.dst_x, character.y, character.dst_y)
---    if character.x~=character.dst_x or character.y~=character.dst_y then return end
---    print(client_time, walk_time)
-    if client_time < walk_time then return end
+    if not to_increase then return end
+
+    if increase_time > client_time then return end
+
+    increase_time = client_time + 200
+    send_packet("increase_attribute", to_increase)
+    print("increase_attribute "..to_increase.." to "..(level+1))
+end
+
+attack_time = client_time
+function attack(mob)
+    if character.action == "dead" then return end
+
+    if attack_time > client_time then return end
+
+    attack_time = client_time + character.attack_speed
+    send_packet("attack", mob.id)
+    character.action = "stand"
+end
+
+walk_last_x = nil
+walk_last_y = nil
+walk_time = client_time
+function walk(x, y)
+    if character.action == "dead" then return end
+
+    character.dst_x = x
+    character.dst_y = y
+
+--    print(character.x, character.y, x, y)
+    local path = nil
+    if math.abs(character.x - x) <= 10 and math.abs(character.y - y) <= 10 then
+        path = map_bot_path(character.x, character.y, x, y)
+    else
+        path = map_find_path(character.x, character.y, x, y, true)
+    end
+    if path then
+        character.path = path;
+        character.path_index = 1;
+        if #path > 1 then
+            x = path[2].x
+            y = path[2].y
+
+--        local s = character.x .. ',' .. character.y .. ' > '
+--        for _,p in ipairs(path) do
+--            s = s .. p.x .. ',' .. p.y .. ' '
+--        end
+--        s = s .. ' > ' .. character.dst_x .. ',' .. character.dst_y
+--        print(s)
+
+        end
+    end
 
     local dir = character.dir
     if y < character.y then
@@ -476,7 +567,12 @@ function walk(x, y)
         end
     end
 
-    walk_time = client_time + 200 -- to prevent kick for packet spamming
+    if client_time < walk_time then return end
+    if x == walk_last_x and y == walk_last_y then return end
+
+    walk_last_x = x
+    walk_last_y = y
+    walk_time = client_time + 150 -- to prevent kick for packet spamming
     send_packet("walk", x, y, 0)
     character.action = "stand"
 end
@@ -511,6 +607,42 @@ function nearest_being(x, y, typ)
         end
     end
     return ret, ret_dist
+end
+
+function nearest_safe_drop(x, y, range)
+    local ret = nil
+    local ret_dist = nil
+
+    for _, drop in pairs(items) do
+        local dist = math.max(math.abs(drop.x - x), math.abs(drop.y - y))
+
+        if dist < range and (not drop.picked) and map_get_threat(drop.x, drop.y) == 0 then
+            if not ret_dist or dist < ret_dist then
+                ret = drop
+                ret_dist = dist
+            end
+        end
+    end
+
+    return ret, ret_dist
+end
+
+function nearest_enemy_mob(x, y, range)
+    local ret = nil
+    local ret_dist = nil
+
+    for _, being in pairs(beings) do
+        local dist = math.max(math.abs(being.x - x), math.abs(being.y - y))
+
+        if dist < range and being.type == "monster" and being.action ~= "dead"
+        and (being.enemy or mobDB[being.race].mode.aggressive) then
+            if not ret_dist or dist < ret_dist then
+                ret = being
+                ret_dist = dist
+            end
+        end
+    end
+    return ret
 end
 
 function nearest_warp(x, y)

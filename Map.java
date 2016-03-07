@@ -24,10 +24,17 @@ public class Map {
     static int[][] costs = null;
     static Direction[][] directions = null;
 
+    static int[][] costsBot = null;
+    static Direction[][] directionsBot = null;
+    static int[][] lengthBot = null;
+
     static void initArrays() {
         threat = new int[costsHeight][costsWidth];
         costs = new int[costsHeight][costsWidth];
         directions = new Direction[costsHeight][costsWidth];
+        costsBot = new int[costsHeight][costsWidth];
+        directionsBot = new Direction[costsHeight][costsWidth];
+        lengthBot = new int[costsHeight][costsWidth];
     }
 
     static {
@@ -163,6 +170,12 @@ public class Map {
     }
 
     public void printMap(int i1, int j1, int i2, int j2) {
+        printMap(costs, i1, j1, i2, j2);
+    }
+
+    public void printMap(int[][] costs, int i1, int j1, int i2, int j2) {
+        if(i1 > i2) { int t = i1; i1 = i2; i2 = t; }
+        if(j1 > j2) { int t = j1; j1 = j2; j2 = t; }
         if(i1 < 0) i1 = 0;
         if(i2 > width) i2 = width;
         if(j1 < 0) j1 = 0;
@@ -203,7 +216,28 @@ public class Map {
         return map[y1][x1]!=0 && map[y2][x2]!=0 && map[y1][x1]==map[y2][x2];
     }
 
-    public LuaValue findPath(int lx1, int ly1, int lx2, int ly2) {
+    int maxThreat = 0;
+
+    public void clearThreat() {
+        maxThreat = 0;
+        for(int j = 0; j != height; ++j) {
+            for(int i=0; i != width; ++i) {
+                threat[j][i] = 0;
+            }
+        }
+    }
+
+    public void addThreat(int x, int y, int t) {
+        if(x < 0 || x >= width || y < 0 || y >= height) return;
+        threat[y][x] += t;
+        if(threat[y][x] > maxThreat) maxThreat = threat[y][x];
+    }
+
+    public int getThreat(int x, int y) {
+        return threat[y][x];
+    }
+
+    public LuaValue findPath(int lx1, int ly1, int lx2, int ly2, boolean checkThreat) {
         this.x1 = lx1;
         this.y1 = ly1;
         this.x2 = lx2;
@@ -240,7 +274,7 @@ public class Map {
         }
 
         walk.clear();
-        walk.add(new Position(x1, y1, 0, 1, Direction.NONE));
+        walk.add(new Position(x1, y1, checkThreat ? threat[y1][x1] : 0, 1, Direction.NONE));
 
         while(!walk.isEmpty()) {
             Position p = (Position)walk.remove();
@@ -255,21 +289,21 @@ public class Map {
                     path_length = p.length;
                 }
             } else {
-                checkWalkableAdd(p, 1, -1, Direction.UR);
-                checkWalkableAdd(p, 1, 1, Direction.DR);
-                checkWalkableAdd(p, -1, 1, Direction.DL);
-                checkWalkableAdd(p, -1, -1, Direction.UL);
-                checkWalkableAdd(p, 1, 0, Direction.R);
-                checkWalkableAdd(p, 0, 1, Direction.D);
-                checkWalkableAdd(p, -1, 0, Direction.L);
-                checkWalkableAdd(p, 0, -1, Direction.U);
+                checkWalkableAdd(p, 1, -1, Direction.UR, checkThreat);
+                checkWalkableAdd(p, 1, 1, Direction.DR, checkThreat);
+                checkWalkableAdd(p, -1, 1, Direction.DL, checkThreat);
+                checkWalkableAdd(p, -1, -1, Direction.UL, checkThreat);
+                checkWalkableAdd(p, 1, 0, Direction.R, checkThreat);
+                checkWalkableAdd(p, 0, 1, Direction.D, checkThreat);
+                checkWalkableAdd(p, -1, 0, Direction.L, checkThreat);
+                checkWalkableAdd(p, 0, -1, Direction.U, checkThreat);
             }
         }
 
         if(path_cost == -1) {
             System.out.println("path_cost == -1  lx1="+lx1+" ly1="+ly1+" lx2="+lx2+" ly2="+ly2);
             System.out.println("r1="+map[y1][x1]+" r2="+map[y2][x2]);
-            printMap(x1-5, y1-5, x2+5, y2+5);
+            printMap(costs, x1-5, y1-5, x2+5, y2+5);
             return NIL;
         }
 
@@ -291,7 +325,7 @@ public class Map {
                 case DR: --x; --y; break;
                 default:
                     System.out.println("unknown direction");
-                    printMap(x1-5, y1-5, x2+5, y2+5);
+                    printMap(costs, x1-5, y1-5, x2+5, y2+5);
                     return NIL;
             }
         }
@@ -302,9 +336,111 @@ public class Map {
         return path;
     }
 
-    void checkWalkableAdd(Position p, int dx, int dy, Direction dir) {
+    public void fillBotPath(int lx1, int ly1, int radius) {
+        this.x1 = lx1;
+        this.y1 = ly1;
+        this.x2 = -1;
+        this.y2 = -1;
+
+        for(int j=0; j!=height; ++j) {
+            for(int i=0; i!=width; ++i) costsBot[j][i] = -1;
+        }
+
+        walk.clear();
+        walk.add(new Position(x1, y1, threat[y1][x1], 1, Direction.NONE));
+
+        while(!walk.isEmpty()) {
+            Position p = (Position)walk.remove();
+            if(Math.abs(p.x - x1) > radius || Math.abs(p.y - y1) > radius) continue;
+            if(costsBot[p.y][p.x]>-1 && p.cost >= costsBot[p.y][p.x]) continue;
+
+            costsBot[p.y][p.x] = p.cost;
+            directionsBot[p.y][p.x] = p.dir;
+            lengthBot[p.y][p.x] = p.length;
+
+            checkWalkableAdd(p, 1, -1, Direction.UR, true);
+            checkWalkableAdd(p, 1, 1, Direction.DR, true);
+            checkWalkableAdd(p, -1, 1, Direction.DL, true);
+            checkWalkableAdd(p, -1, -1, Direction.UL, true);
+            checkWalkableAdd(p, 1, 0, Direction.R, true);
+            checkWalkableAdd(p, 0, 1, Direction.D, true);
+            checkWalkableAdd(p, -1, 0, Direction.L, true);
+            checkWalkableAdd(p, 0, -1, Direction.U, true);
+        }
+    }
+
+    public LuaValue nearestSafeSpot(int lx1, int ly1, int radius) {
+        int min_x = -1;
+        int min_y = -1;
+        int min_l = -1;
+        int min_t = -1;
+
+        for(int j = ly1 - radius; j != ly1 + radius; ++j) {
+            for(int i = lx1 - radius; i != lx1 + radius; ++i) {
+                if(costsBot[j][i] != -1) {
+                    int t = threat[j][i];
+                    int l = costsBot[j][i];
+                    if(min_t == -1 || t < min_t || (t == min_t && l < min_l)) {
+                        min_x = i;
+                        min_y = j;
+                        min_l = l;
+                        min_t = t;
+                    }
+                }
+            }
+        }
+        if(min_t != -1) {
+            LuaValue t = new LuaTable();
+            t.set("x", valueOf(min_x));
+            t.set("y", valueOf(min_y));
+            return t;
+        }
+        return NIL;
+    }
+
+    public LuaValue findBotPath(int lx1, int ly1, int lx2, int ly2) {
+        if(map[ly2][lx2] == 0) return NIL;
+        if(costsBot[ly2][lx2] == -1) return NIL;
+
+        this.x1 = lx1;
+        this.y1 = ly1;
+        this.x2 = lx2;
+        this.y2 = ly2;
+
+        LuaTable path = new LuaTable();
+
+        int i=lengthBot[y2][x2];
+//        System.out.println(x1+" "+y1+" "+x2+" "+y2);
+//        printMap(costsBot, x1-5, y1-5, x2-5, y2-5);
+//        System.out.println("lengthBot = "+i);
+//        System.exit(1);
+        int x = x2;
+        int y = y2;
+        while(i>0) {
+            path.set(i--, makeLuaPosition(x, y));
+            if(x == lx1 && y == ly1) break;
+            switch(directionsBot[y][x]) {
+                case U: ++y; break;
+                case D: --y; break;
+                case L: ++x; break;
+                case R: --x; break;
+                case UL: ++x; ++y; break;
+                case UR: --x; ++y; break;
+                case DL: ++x; --y; break;
+                case DR: --x; --y; break;
+                default:
+                    System.out.println("unknown direction");
+                    printMap(costs, x1-5, y1-5, x2+5, y2+5);
+                    return NIL;
+            }
+        }
+        return path;
+    }
+
+    void checkWalkableAdd(Position p, int dx, int dy, Direction dir, boolean checkThreat) {
         int cost = 10;
         if(dx!=0 && dy!=0) cost = 14;
+        if(checkThreat) cost += threat[p.y + dy][p.x + dx];
         if(walkable(p.x, p.y, dx, dy)) walk.add(new Position(p.x + dx, p.y + dy, p.cost + cost, p.length + 1, dir));
     }
 }
